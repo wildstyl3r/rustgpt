@@ -1,19 +1,19 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use tch::{Tensor, nn::{self, Module, OptimizerConfig}, IndexOp};
 use rand::{rngs::StdRng, SeedableRng};
 
 struct Vocabulary {
-    stoi: HashMap<String, i64>,
+    stoi: BTreeMap<String, i64>,
     itos: Vec<String>
 }
 
 impl Vocabulary {
     fn new(s: &str) -> Self {
-        let mut set = HashSet::new();
+        let mut set = BTreeSet::new();
         for c in s.chars() {
             set.insert(c);
         }
-        let mut stoi = HashMap::new();
+        let mut stoi = BTreeMap::new();
         let mut itos = Vec::new();
         for (i, c) in set.iter().enumerate() {
             itos.push(c.to_string());
@@ -25,10 +25,6 @@ impl Vocabulary {
     fn len(&self) -> usize {
         self.stoi.len()
     }
-}
-
-fn normalize(s: String) -> String {
-    todo!();
 }
 
 fn encode(s: String, vocabulary: Option<&Vocabulary>) -> Vec<i64> {
@@ -47,63 +43,143 @@ fn decode(v: Vec<i64>, vocabulary: Option<&Vocabulary>) -> String {
 
 
 fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor) {
-    let mut rng = StdRng::seed_from_u64(23);
+    let ix = Tensor::randint(data.size1().unwrap() - block_size, [batch_size], (tch::Kind::Int, tch::Device::Cpu));
 
-    let ixr = rand::seq::index::sample(
-        &mut rng,
-        (data.size1().expect("tch size err: get_batch") - block_size) as usize,
-        batch_size as usize
-    );
-    let context = Tensor::stack(
-        &ixr.iter().map(|i|
-            data.i(i as i64 .. i as i64 + block_size)
-        ).collect::<Vec<_>>(),
-        0
-    );
-    let target = Tensor::stack(
-        &ixr.iter().map(|i|
-            data.i(i as i64 + 1 .. i as i64 + block_size + 1)
-        ).collect::<Vec<_>>(),
-        0
-    );
-    (context, target)
+    let x = Tensor::stack(&ix.iter::<i64>().unwrap().map(|i| data.i(i .. i + block_size)).collect::<Vec<_>>(), 0);
+    let y = Tensor::stack(&ix.iter::<i64>().unwrap().map(|i| data.i(i + 1 .. i + block_size + 1)).collect::<Vec<_>>(), 0);
+    (x, y)
+
+    // let mut rng = StdRng::seed_from_u64(23);
+
+    // let ixr = rand::seq::index::sample(
+    //     &mut rng,
+    //     (data.size1().expect("tch size err: get_batch") - block_size) as usize,
+    //     batch_size as usize
+    // );
+    // let context = Tensor::stack(
+    //     &ixr.iter().map(|i|
+    //         data.i(i as i64 .. i as i64 + block_size)
+    //     ).collect::<Vec<_>>(),
+    //     0
+    // );
+    // let target = Tensor::stack(
+    //     &ixr.iter().map(|i|
+    //         data.i(i as i64 + 1 .. i as i64 + block_size + 1)
+    //     ).collect::<Vec<_>>(),
+    //     0
+    // );
+    // (context, target)
 }
+
+fn estimate_loss(eval_iters: i64, train_data: &Tensor, validation_data: &Tensor, batch_size: i64, block_size: i64, m: &BigramLanguageModel) -> [Tensor; 2] {
+    let mut losses_train = Tensor::zeros(eval_iters, (tch::Kind::Float, tch::Device::Cpu));
+    for k in 0..eval_iters {
+        let (x, y) = get_batch(train_data, batch_size, block_size);
+        let (loss, _) = m.forward(&x, Some(&y));
+        let loss = loss.unwrap();
+        losses_train = losses_train.index_put_(&[Some(Tensor::from(k))], &loss, false);
+    }
+
+    let mut losses_val = Tensor::zeros(eval_iters, (tch::Kind::Float, tch::Device::Cpu));
+    for k in 0..eval_iters {
+        let (x, y) = get_batch(validation_data, batch_size, block_size);
+        let (loss, _) = m.forward(&x, Some(&y));
+        let loss = loss.unwrap();
+        losses_val = losses_val.index_put_(&[Some(Tensor::from(k))], &loss, false);
+    }
+    //[0.0, 0.0]
+    [losses_train.mean(tch::Kind::Float), losses_val.mean(tch::Kind::Float)]
+}
+
+#[derive(Debug)]
+struct Head {
+    key: nn::Linear,
+    query: nn::Linear,
+    value: nn::Linear,
+    tril: Tensor,
+}
+
+impl Head {
+    fn new(path: nn::Path, head_size: i64, n_embed: i64, block_size: i64) -> Self {
+        Head {
+            key: nn::linear(&path / "head_k", n_embed, head_size, nn::LinearConfig{bias: false, ..Default::default()}),
+            query: nn::linear(&path / "head_q", n_embed, head_size, nn::LinearConfig{bias: false, ..Default::default()}),
+            value: nn::linear(&path / "head_v", n_embed, head_size, nn::LinearConfig{bias: false, ..Default::default()}),
+            tril: Tensor::ones([block_size, block_size], (tch::Kind::Float, tch::Device::Cpu)).tril(0),
+        }
+    }
+
+    fn forward(&self, x: &Tensor) -> Tensor {
+        let (_b, t, c) = x.size3().unwrap();
+        let k = self.key.forward(x);
+        let q = self.query.forward(x);
+        let wei = (q.matmul(&k.transpose(-2, -1)) / (c as f64).sqrt())//powf(-0.5))
+            .masked_fill(&self.tril.i((..t, ..t)).eq(0), f64::NEG_INFINITY)
+            .softmax(-1, tch::Kind::Float);
+        let v = self.value.forward(x);
+        wei.matmul(&v)
+    }
+}
+
 
 #[derive(Debug)]
 struct BigramLanguageModel {
     token_embedding_table: nn::Embedding,
-    last_loss: Option<Tensor>,
+    position_embedding_table: nn::Embedding,
+    self_attention_head: Head,
+    language_modeling_head: nn::Linear,
+    block_size: i64,
 }
 
 impl BigramLanguageModel {
-    fn new(path: nn::Path, vocab_size: i64) -> Self {
+    fn new(path: nn::Path, vocab_size: i64, n_embed: i64, block_size: i64) -> Self {
         BigramLanguageModel {
             token_embedding_table: nn::embedding(
-                path / "embedding",
+                &path / "embedding",
                 vocab_size,
-                vocab_size,
+                n_embed,
                 Default::default()
             ),
-            last_loss: None
+            position_embedding_table: nn::embedding(
+                &path / "pos_embedding",
+                block_size, n_embed, Default::default()
+            ),
+            self_attention_head: Head::new(
+                &path / "self_att_head",
+                n_embed, n_embed, block_size
+            ),
+            language_modeling_head: nn::linear(
+                &path / "lm_head",
+                n_embed, vocab_size, Default::default()
+            ),
+            block_size
         }
     }
 
     fn forward(&self, idx: &Tensor, targets: Option<&Tensor>) -> (Option<Tensor>, Tensor) {
-        let logits = self.token_embedding_table.forward(idx);
-        match targets {
-            Some(tar) => {
-                let (b,t,c) = logits.size3().unwrap();
-                let logits = logits.view((b*t, c));
-                let targets = tar.view(b*t);
-                (Some(logits.cross_entropy_for_logits(&targets)), logits)
-            },
-            None => (None, logits)
+        let (_b, t) = idx.size2().unwrap();
+        let token_embeddings = self.token_embedding_table.forward(idx); //[B,T,C]
+        let position_embeddings = self.position_embedding_table.forward(&Tensor::arange(t, (tch::Kind::Int, tch::Device::Cpu))); //[T,C]
+
+        let x = self.self_attention_head.forward(&(token_embeddings + position_embeddings));
+
+        let logits = self.language_modeling_head.forward(&x); //[B,T,vocab_size]
+
+        if let Some(targets) = targets {
+            let (b,t,c) = logits.size3().unwrap();
+            let logits = logits.view((b*t, c));
+            let targets = targets.view(b*t);
+            (Some(logits.cross_entropy_for_logits(&targets)), logits)
+        } else {
+            (None, logits)
         }
     }
 
     fn generate(&self, mut idx: Tensor, max_new_tokens: usize) -> Tensor {
-        for i in 0..max_new_tokens {
-            let (_, logits) = self.forward(&idx, None);
+        for _ in 0..max_new_tokens {
+            let (_x,y) = idx.size2().unwrap();
+            let idx_cond = idx.i((.., y-(self.block_size)..));
+            let (_, logits) = self.forward(&idx_cond, None);
             let logits = logits.i((..,-1,..));
             let probs = logits.softmax(-1, tch::Kind::Float);
 
@@ -114,9 +190,17 @@ impl BigramLanguageModel {
     }
 }
 
-
 fn main() {
-    let text = std::fs::read_to_string("input.txt").unwrap_or("No text".to_string());
+    tch::manual_seed(1337);
+    let batch_size = 32;
+    let block_size = 8;
+    let max_iters = 5000;
+    let eval_interval = 500;
+    let learning_rate = 1e-3;
+    let eval_iters = 200;
+    let n_embed = 32;
+
+    let text = std::fs::read_to_string("input.txt").unwrap();
     let vocabulary = Vocabulary::new(&text);
     let vocab_size = vocabulary.len();
 
@@ -127,37 +211,33 @@ fn main() {
     let train_data = data.i(0..n);
     let validation_data = data.i(n..len-1);
 
-    let block_size = 8;
-    let batch_size = 32;
-
-    let (xb, yb) = get_batch(&train_data, batch_size, block_size);
 
     let vs = tch::nn::VarStore::new(data.device());
-    let m = BigramLanguageModel::new(vs.root(), vocab_size.try_into().unwrap());
+    let m = BigramLanguageModel::new(vs.root(), vocab_size.try_into().unwrap(), n_embed, block_size);
 
-    // for b in 0..batch_size {
-    //     for t in 0..block_size {
-    //         let context = xb.i((b, ..t+1));
-    //         let target = yb.i((b, t));
-    //         println!("input: {}, target: {}", context, target);
-    //     }
-    // }
-    let idx = Tensor::zeros([1,1], (tch::Kind::Int, tch::Device::Cpu));
+    let mut optimizer = nn::AdamW::default().build(&vs, learning_rate).unwrap();
 
-    let mut optimizer = nn::AdamW::default().build(&vs, 10e-3).unwrap();
+    for i in 0..max_iters {
+        if i % eval_interval == 0 {
+            let losses = tch::no_grad(|| estimate_loss(eval_iters, &train_data, &validation_data, batch_size, block_size, &m));
+            println!("step: {}, train loss: {}, val loss: {}", i, losses[0], losses[1]);
+        }
 
-    for _ in 0..1000 {
         let (xb, yb) = get_batch(&train_data, batch_size, block_size);
+
         let (loss, _) = m.forward(&xb, Some(&yb));
         optimizer.zero_grad();
         if let Some(l) = loss {
             l.backward();
-            println!("{}", l);
+        } else {
+            panic!();
         }
         optimizer.step();
     }
 
-    println!("{}", decode(Vec::<i64>::try_from(m.generate(idx, 400).i(0)).unwrap(), Some(&vocabulary)));
+
+    let idx = Tensor::zeros([1,batch_size], (tch::Kind::Int, tch::Device::Cpu));
+    println!("{}", decode(Vec::<i64>::try_from(m.generate(idx, 500).i(0)).unwrap(), Some(&vocabulary)));
 }
 
 
@@ -175,10 +255,12 @@ mod tests {
     fn test_bigram_language_model() {
         let vs = nn::VarStore::new(tch::Device::Cpu);
         let vocab_size = 100;
+        let n_embed = 32;
         let batch_size = 2;
         let block_size = 5;
+        let head_size = 16;
 
-        let model = BigramLanguageModel::new(vs.root(), vocab_size);
+        let model = BigramLanguageModel::new(vs.root(), vocab_size, n_embed, block_size);
         let xs = Tensor::from_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).to_kind(tch::Kind::Int);
         let xs = xs.view([batch_size, block_size]);
         println!("xs: {:?}", xs);
