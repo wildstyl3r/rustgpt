@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 use tch::{Tensor, nn::{self, Module, OptimizerConfig}, IndexOp};
-use rand::{rngs::StdRng, SeedableRng};
 
 struct Vocabulary {
     stoi: BTreeMap<String, i64>,
@@ -48,47 +47,28 @@ fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor
     let x = Tensor::stack(&ix.iter::<i64>().unwrap().map(|i| data.i(i .. i + block_size)).collect::<Vec<_>>(), 0);
     let y = Tensor::stack(&ix.iter::<i64>().unwrap().map(|i| data.i(i + 1 .. i + block_size + 1)).collect::<Vec<_>>(), 0);
     (x, y)
-
-    // let mut rng = StdRng::seed_from_u64(23);
-
-    // let ixr = rand::seq::index::sample(
-    //     &mut rng,
-    //     (data.size1().expect("tch size err: get_batch") - block_size) as usize,
-    //     batch_size as usize
-    // );
-    // let context = Tensor::stack(
-    //     &ixr.iter().map(|i|
-    //         data.i(i as i64 .. i as i64 + block_size)
-    //     ).collect::<Vec<_>>(),
-    //     0
-    // );
-    // let target = Tensor::stack(
-    //     &ixr.iter().map(|i|
-    //         data.i(i as i64 + 1 .. i as i64 + block_size + 1)
-    //     ).collect::<Vec<_>>(),
-    //     0
-    // );
-    // (context, target)
 }
 
 fn estimate_loss(eval_iters: i64, train_data: &Tensor, validation_data: &Tensor, batch_size: i64, block_size: i64, m: &BigramLanguageModel) -> [Tensor; 2] {
-    let mut losses_train = Tensor::zeros(eval_iters, (tch::Kind::Float, tch::Device::Cpu));
-    for k in 0..eval_iters {
-        let (x, y) = get_batch(train_data, batch_size, block_size);
-        let (loss, _) = m.forward(&x, Some(&y));
-        let loss = loss.unwrap();
-        losses_train = losses_train.index_put_(&[Some(Tensor::from(k))], &loss, false);
-    }
+    tch::no_grad(||{
+        let mut losses_train = Tensor::zeros(eval_iters, (tch::Kind::Float, tch::Device::Cpu));
+        for k in 0..eval_iters {
+            let (x, y) = get_batch(train_data, batch_size, block_size);
+            let (loss, _) = m.forward(&x, Some(&y));
+            let loss = loss.unwrap();
+            losses_train = losses_train.index_put_(&[Some(Tensor::from(k))], &loss, false);
+        }
 
-    let mut losses_val = Tensor::zeros(eval_iters, (tch::Kind::Float, tch::Device::Cpu));
-    for k in 0..eval_iters {
-        let (x, y) = get_batch(validation_data, batch_size, block_size);
-        let (loss, _) = m.forward(&x, Some(&y));
-        let loss = loss.unwrap();
-        losses_val = losses_val.index_put_(&[Some(Tensor::from(k))], &loss, false);
-    }
-    //[0.0, 0.0]
-    [losses_train.mean(tch::Kind::Float), losses_val.mean(tch::Kind::Float)]
+        let mut losses_val = Tensor::zeros(eval_iters, (tch::Kind::Float, tch::Device::Cpu));
+        for k in 0..eval_iters {
+            let (x, y) = get_batch(validation_data, batch_size, block_size);
+            let (loss, _) = m.forward(&x, Some(&y));
+            let loss = loss.unwrap();
+            losses_val = losses_val.index_put_(&[Some(Tensor::from(k))], &loss, false);
+        }
+        //[0.0, 0.0]
+        [losses_train.mean(tch::Kind::Float), losses_val.mean(tch::Kind::Float)]
+    })
 }
 
 #[derive(Debug)]
@@ -219,7 +199,7 @@ fn main() {
 
     for i in 0..max_iters {
         if i % eval_interval == 0 {
-            let losses = tch::no_grad(|| estimate_loss(eval_iters, &train_data, &validation_data, batch_size, block_size, &m));
+            let losses = estimate_loss(eval_iters, &train_data, &validation_data, batch_size, block_size, &m);
             println!("step: {}, train loss: {}, val loss: {}", i, losses[0], losses[1]);
         }
 
@@ -249,26 +229,5 @@ mod tests {
     fn dencoder () {
         let s = String::from("Hello, test!12345");
         assert_eq!(s.clone(), decode(encode(s, None), None))
-    }
-
-    #[test]
-    fn test_bigram_language_model() {
-        let vs = nn::VarStore::new(tch::Device::Cpu);
-        let vocab_size = 100;
-        let n_embed = 32;
-        let batch_size = 2;
-        let block_size = 5;
-        let head_size = 16;
-
-        let model = BigramLanguageModel::new(vs.root(), vocab_size, n_embed, block_size);
-        let xs = Tensor::from_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]).to_kind(tch::Kind::Int);
-        let xs = xs.view([batch_size, block_size]);
-        println!("xs: {:?}", xs);
-        let (b, t) = xs.size2().unwrap();
-        assert_eq!(b, batch_size);
-        assert_eq!(t, block_size);
-
-        let (_, logits) = model.forward(&xs, None);
-        assert_eq!(logits.size(), [batch_size, block_size, vocab_size]);
     }
 }
