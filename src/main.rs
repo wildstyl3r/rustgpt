@@ -43,10 +43,16 @@ fn decode(v: Vec<i64>, vocabulary: Option<&Vocabulary>) -> String {
 
 fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor) {
     let ix = Tensor::randint(data.size1().unwrap() - block_size, [batch_size], (tch::Kind::Int, tch::Device::Cpu));
-
-    let x = Tensor::stack(&ix.iter::<i64>().unwrap().map(|i| data.i(i .. i + block_size)).collect::<Vec<_>>(), 0);
-    let y = Tensor::stack(&ix.iter::<i64>().unwrap().map(|i| data.i(i + 1 .. i + block_size + 1)).collect::<Vec<_>>(), 0);
-    (x, y)
+    (
+        Tensor::stack( //context
+            &ix.iter::<i64>().unwrap().map(|i| data.i(i .. i + block_size)).collect::<Vec<_>>(),
+            0
+        ),
+        Tensor::stack( //target
+            &ix.iter::<i64>().unwrap().map(|i| data.i(i + 1 .. i + block_size + 1)).collect::<Vec<_>>(),
+            0
+        )
+    )
 }
 
 fn estimate_loss(eval_iters: i64, train_data: &Tensor, validation_data: &Tensor, batch_size: i64, block_size: i64, m: &BigramLanguageModel) -> [Tensor; 2] {
@@ -93,20 +99,95 @@ impl Head {
         let (_b, t, c) = x.size3().unwrap();
         let k = self.key.forward(x);
         let q = self.query.forward(x);
-        let wei = (q.matmul(&k.transpose(-2, -1)) / (c as f64).sqrt())//powf(-0.5))
+        let wei = (q.matmul(&k.transpose(-2, -1)) * (c as f64).powf(-0.5))
             .masked_fill(&self.tril.i((..t, ..t)).eq(0), f64::NEG_INFINITY)
             .softmax(-1, tch::Kind::Float);
-        let v = self.value.forward(x);
-        wei.matmul(&v)
+        wei.matmul(&self.value.forward(x))
     }
 }
 
+#[derive(Debug)]
+struct MultiHead {
+    heads: Vec<Head>,
+    projection: nn::Linear,
+}
+
+impl MultiHead {
+    fn new(path: nn::Path, num_heads: usize, head_size: i64, n_embed: i64, block_size: i64) -> Self {
+        MultiHead {
+            heads: (0..num_heads).map(|i|
+                Head::new(
+                    &path / ("multi_head_c".to_string() + &i.to_string()),
+                    head_size,
+                    n_embed,
+                    block_size
+                )
+            ).collect(),
+            projection: nn::linear(&path / "proj", n_embed, n_embed, Default::default())
+        }
+    }
+
+    fn forward(&self, x: &Tensor) -> Tensor {
+        self.projection.forward(
+            &Tensor::cat(
+                &self.heads.iter().map(|h| h.forward(x)).collect::<Vec<_>>(),
+                -1
+            )
+        )
+    }
+}
+
+#[derive(Debug)]
+struct FeedForward {
+    net: nn::Sequential
+}
+
+impl FeedForward {
+    fn new(path: nn::Path, n_embed: i64) -> Self {
+        FeedForward {
+            net: nn::seq()
+                .add(nn::linear(&path / "l1", n_embed, 4*n_embed, Default::default()))
+                .add_fn(|xs| xs.relu())
+                .add(nn::linear(&path / "l2", 4*n_embed, n_embed, Default::default()))
+        }
+    }
+
+    fn forward(&self, x: &Tensor) -> Tensor {
+        self.net.forward(x)
+    }
+}
+
+#[derive(Debug)]
+struct Block {
+    sa_ln: nn::LayerNorm,
+    self_attention: MultiHead,
+    ff_ln: nn::LayerNorm,
+    ffwd: FeedForward,
+}
+
+impl Block {
+    fn new(path: nn::Path, n_embed: i64, num_heads: usize, block_size: i64) -> Self {
+        let head_size = (n_embed as usize / num_heads) as i64;
+        Block {
+            sa_ln: nn::layer_norm(&path / "sa_ln", vec![n_embed], Default::default()),
+            self_attention: MultiHead::new(&path / "b_sa", num_heads, head_size, n_embed, block_size),
+            ff_ln: nn::layer_norm(&path / "ff_ln", vec![n_embed], Default::default()),
+            ffwd: FeedForward::new(&path / "b_ffwd", n_embed)
+        }
+    }
+}
+impl nn::Module for Block {
+    fn forward(&self, x: &tch::Tensor) -> Tensor {
+        let x = self.self_attention.forward(&self.sa_ln.forward(x)) + x;
+        self.ffwd.forward(&self.ff_ln.forward(&x)) + x
+    }
+}
 
 #[derive(Debug)]
 struct BigramLanguageModel {
     token_embedding_table: nn::Embedding,
     position_embedding_table: nn::Embedding,
-    self_attention_head: Head,
+    blocks: nn::Sequential,
     language_modeling_head: nn::Linear,
     block_size: i64,
 }
@@ -124,10 +205,11 @@ impl BigramLanguageModel {
                 &path / "pos_embedding",
                 block_size, n_embed, Default::default()
             ),
-            self_attention_head: Head::new(
-                &path / "self_att_head",
-                n_embed, n_embed, block_size
-            ),
+            blocks: nn::seq()
+                .add(Block::new(&path / "b1", n_embed, 4, block_size))
+                .add(Block::new(&path / "b2", n_embed, 4, block_size))
+                .add(Block::new(&path / "b3", n_embed, 4, block_size))
+                .add(nn::layer_norm(&path / "blocks_ln", vec![n_embed], Default::default())),
             language_modeling_head: nn::linear(
                 &path / "lm_head",
                 n_embed, vocab_size, Default::default()
@@ -139,10 +221,11 @@ impl BigramLanguageModel {
     fn forward(&self, idx: &Tensor, targets: Option<&Tensor>) -> (Option<Tensor>, Tensor) {
         let (_b, t) = idx.size2().unwrap();
         let token_embeddings = self.token_embedding_table.forward(idx); //[B,T,C]
-        let position_embeddings = self.position_embedding_table.forward(&Tensor::arange(t, (tch::Kind::Int, tch::Device::Cpu))); //[T,C]
+        let position_embeddings = self.position_embedding_table.forward(
+            &Tensor::arange(t, (tch::Kind::Int, tch::Device::Cpu))
+        ); //[T,C]
 
-        let x = self.self_attention_head.forward(&(token_embeddings + position_embeddings));
-
+        let x = self.blocks.forward(&(token_embeddings + position_embeddings));
         let logits = self.language_modeling_head.forward(&x); //[B,T,vocab_size]
 
         if let Some(targets) = targets {
@@ -174,7 +257,7 @@ fn main() {
     tch::manual_seed(1337);
     let batch_size = 32;
     let block_size = 8;
-    let max_iters = 5000;
+    let max_iters = 5001;
     let eval_interval = 500;
     let learning_rate = 1e-3;
     let eval_iters = 200;
@@ -200,7 +283,7 @@ fn main() {
     for i in 0..max_iters {
         if i % eval_interval == 0 {
             let losses = estimate_loss(eval_iters, &train_data, &validation_data, batch_size, block_size, &m);
-            println!("step: {}, train loss: {}, val loss: {}", i, losses[0], losses[1]);
+            println!("step: {}, train loss: {:.4}, val loss: {:.4}", i, losses[0].double_value(&[]), losses[1].double_value(&[]));
         }
 
         let (xb, yb) = get_batch(&train_data, batch_size, block_size);
