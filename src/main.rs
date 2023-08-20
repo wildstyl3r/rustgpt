@@ -83,15 +83,17 @@ struct Head {
     query: nn::Linear,
     value: nn::Linear,
     tril: Tensor,
+    dropout: f64,
 }
 
 impl Head {
-    fn new(path: nn::Path, head_size: i64, n_embed: i64, block_size: i64) -> Self {
+    fn new(path: nn::Path, head_size: i64, n_embed: i64, block_size: i64, dropout: f64) -> Self {
         Head {
             key: nn::linear(&path / "head_k", n_embed, head_size, nn::LinearConfig{bias: false, ..Default::default()}),
             query: nn::linear(&path / "head_q", n_embed, head_size, nn::LinearConfig{bias: false, ..Default::default()}),
             value: nn::linear(&path / "head_v", n_embed, head_size, nn::LinearConfig{bias: false, ..Default::default()}),
             tril: Tensor::ones([block_size, block_size], (tch::Kind::Float, tch::Device::Cpu)).tril(0),
+            dropout
         }
     }
 
@@ -101,7 +103,8 @@ impl Head {
         let q = self.query.forward(x);
         let wei = (q.matmul(&k.transpose(-2, -1)) * (c as f64).powf(-0.5))
             .masked_fill(&self.tril.i((..t, ..t)).eq(0), f64::NEG_INFINITY)
-            .softmax(-1, tch::Kind::Float);
+            .softmax(-1, tch::Kind::Float)
+            .dropout(self.dropout, true);
         wei.matmul(&self.value.forward(x))
     }
 }
@@ -110,20 +113,24 @@ impl Head {
 struct MultiHead {
     heads: Vec<Head>,
     projection: nn::Linear,
+    dropout: f64,
 }
 
 impl MultiHead {
-    fn new(path: nn::Path, num_heads: usize, head_size: i64, n_embed: i64, block_size: i64) -> Self {
+    fn new(path: nn::Path, num_heads: usize, n_embed: i64, block_size: i64, dropout: f64) -> Self {
+        let head_size = (n_embed as usize / num_heads) as i64;
         MultiHead {
             heads: (0..num_heads).map(|i|
                 Head::new(
                     &path / ("multi_head_c".to_string() + &i.to_string()),
                     head_size,
                     n_embed,
-                    block_size
+                    block_size,
+                    dropout
                 )
             ).collect(),
-            projection: nn::linear(&path / "proj", n_embed, n_embed, Default::default())
+            projection: nn::linear(&path / "proj", n_embed, n_embed, Default::default()),
+            dropout
         }
     }
 
@@ -133,7 +140,7 @@ impl MultiHead {
                 &self.heads.iter().map(|h| h.forward(x)).collect::<Vec<_>>(),
                 -1
             )
-        )
+        ).dropout(self.dropout, true)
     }
 }
 
@@ -143,12 +150,13 @@ struct FeedForward {
 }
 
 impl FeedForward {
-    fn new(path: nn::Path, n_embed: i64) -> Self {
+    fn new(path: nn::Path, n_embed: i64, dropout: f64) -> Self {
         FeedForward {
             net: nn::seq()
                 .add(nn::linear(&path / "l1", n_embed, 4*n_embed, Default::default()))
                 .add_fn(|xs| xs.relu())
                 .add(nn::linear(&path / "l2", 4*n_embed, n_embed, Default::default()))
+                .add_fn(move |xs| xs.dropout(dropout, true))
         }
     }
 
@@ -166,13 +174,13 @@ struct Block {
 }
 
 impl Block {
-    fn new(path: nn::Path, n_embed: i64, num_heads: usize, block_size: i64) -> Self {
-        let head_size = (n_embed as usize / num_heads) as i64;
+    fn new(path: nn::Path, n_embed: i64, num_heads: usize, block_size: i64, dropout: f64) -> Self {
+        //let head_size = (n_embed as usize / num_heads) as i64;
         Block {
             sa_ln: nn::layer_norm(&path / "sa_ln", vec![n_embed], Default::default()),
-            self_attention: MultiHead::new(&path / "b_sa", num_heads, head_size, n_embed, block_size),
+            self_attention: MultiHead::new(&path / "b_sa", num_heads, n_embed, block_size, dropout),
             ff_ln: nn::layer_norm(&path / "ff_ln", vec![n_embed], Default::default()),
-            ffwd: FeedForward::new(&path / "b_ffwd", n_embed)
+            ffwd: FeedForward::new(&path / "b_ffwd", n_embed, dropout)
         }
     }
 }
@@ -188,12 +196,13 @@ struct BigramLanguageModel {
     token_embedding_table: nn::Embedding,
     position_embedding_table: nn::Embedding,
     blocks: nn::Sequential,
+    final_ln: nn::LayerNorm,
     language_modeling_head: nn::Linear,
     block_size: i64,
 }
 
 impl BigramLanguageModel {
-    fn new(path: nn::Path, vocab_size: i64, n_embed: i64, block_size: i64) -> Self {
+    fn new(path: nn::Path, vocab_size: i64, n_embed: i64, block_size: i64, n_layer: i64, dropout: f64) -> Self {
         BigramLanguageModel {
             token_embedding_table: nn::embedding(
                 &path / "embedding",
@@ -205,11 +214,20 @@ impl BigramLanguageModel {
                 &path / "pos_embedding",
                 block_size, n_embed, Default::default()
             ),
-            blocks: nn::seq()
-                .add(Block::new(&path / "b1", n_embed, 4, block_size))
-                .add(Block::new(&path / "b2", n_embed, 4, block_size))
-                .add(Block::new(&path / "b3", n_embed, 4, block_size))
-                .add(nn::layer_norm(&path / "blocks_ln", vec![n_embed], Default::default())),
+            blocks: {
+                (0..n_layer).fold(
+                    nn::seq(),
+                    |s, i|
+                        s.add(Block::new(
+                            &path / ("b".to_owned() + &i.to_string()),
+                            n_embed,
+                            4,
+                            block_size,
+                            dropout
+                        ))
+                ).add(nn::layer_norm(&path / "blocks_ln", vec![n_embed], Default::default()))
+            },
+            final_ln: nn::layer_norm(&path / "ln_f", vec![n_embed], Default::default()),
             language_modeling_head: nn::linear(
                 &path / "lm_head",
                 n_embed, vocab_size, Default::default()
@@ -226,7 +244,7 @@ impl BigramLanguageModel {
         ); //[T,C]
 
         let x = self.blocks.forward(&(token_embeddings + position_embeddings));
-        let logits = self.language_modeling_head.forward(&x); //[B,T,vocab_size]
+        let logits = self.language_modeling_head.forward(&self.final_ln.forward(&x)); //[B,T,vocab_size]
 
         if let Some(targets) = targets {
             let (b,t,c) = logits.size3().unwrap();
@@ -257,11 +275,13 @@ fn main() {
     tch::manual_seed(1337);
     let batch_size = 32;
     let block_size = 8;
-    let max_iters = 5001;
+    let max_iters = 15001;
     let eval_interval = 500;
-    let learning_rate = 1e-3;
+    let learning_rate = 3e-3;
     let eval_iters = 200;
     let n_embed = 32;
+    let n_layer = 4;
+    let dropout = 0.2;
 
     let text = std::fs::read_to_string("input.txt").unwrap();
     let vocabulary = Vocabulary::new(&text);
@@ -276,7 +296,7 @@ fn main() {
 
 
     let vs = tch::nn::VarStore::new(data.device());
-    let m = BigramLanguageModel::new(vs.root(), vocab_size.try_into().unwrap(), n_embed, block_size);
+    let m = BigramLanguageModel::new(vs.root(), vocab_size.try_into().unwrap(), n_embed, block_size, n_layer, dropout);
 
     let mut optimizer = nn::AdamW::default().build(&vs, learning_rate).unwrap();
 
