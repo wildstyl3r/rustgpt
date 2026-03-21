@@ -2,12 +2,12 @@ use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
 
 mod karpathy;
 mod language_model;
+mod tokenizer;
 mod utils;
-mod vocabulary;
 use crate::karpathy::model::TransformerLanguageModel;
 use crate::language_model::LanguageModel;
-use crate::utils::{decode, encode, estimate_loss, get_batch};
-use crate::vocabulary::Vocabulary;
+use crate::tokenizer::{Token, Tokenizer};
+use crate::utils::{estimate_loss, get_batch};
 
 fn main() {
     tch::manual_seed(1337);
@@ -22,10 +22,10 @@ fn main() {
     let dropout = 0.2;
 
     let text = std::fs::read_to_string("input.txt").unwrap();
-    let vocabulary = Vocabulary::new(&text);
-    let vocab_size = vocabulary.len();
 
-    let data = Tensor::from_slice(&encode(text, Some(&vocabulary)));
+    let tokenizer = Tokenizer::new(&text);
+
+    let data = Tensor::from_slice(&tokenizer.encode(&text));
 
     let len = data.size1().expect("Unable to get data tensor size: main");
     let n = (0.9 * len as f32) as i64;
@@ -35,7 +35,7 @@ fn main() {
     let vs = tch::nn::VarStore::new(data.device());
     let m = TransformerLanguageModel::new(
         vs.root(),
-        vocab_size.try_into().unwrap(),
+        tokenizer.vocabulary.len().try_into().unwrap(),
         n_embed,
         block_size,
         n_blocks,
@@ -71,20 +71,6 @@ fn main() {
     let idx = Tensor::zeros([1, batch_size], (tch::Kind::Int, tch::Device::Cpu));
     println!(
         "[{}]",
-        decode(
-            Vec::<i64>::try_from(m.generate(idx, 500).i(0)).unwrap(),
-            Some(&vocabulary)
-        )
+        tokenizer.decode(&Vec::<Token>::try_from(m.generate(idx, 500).i(0)).unwrap())
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dencoder() {
-        let s = String::from("Hello, test!12345");
-        assert_eq!(s.clone(), decode(encode(s, None), None))
-    }
 }

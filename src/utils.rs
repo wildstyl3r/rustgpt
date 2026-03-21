@@ -1,20 +1,5 @@
 use crate::language_model::LanguageModel;
-use crate::vocabulary::Vocabulary;
 use tch::{IndexOp, Tensor};
-
-pub fn encode(s: String, vocabulary: Option<&Vocabulary>) -> Vec<i64> {
-    match vocabulary {
-        Some(v) => s.chars().map(|c| v.stoi[&c.to_string()]).collect(),
-        None => s.chars().map(|c| (c as u32) as i64).collect(),
-    }
-}
-
-pub fn decode(v: Vec<i64>, vocabulary: Option<&Vocabulary>) -> String {
-    match vocabulary {
-        Some(voc) => v.iter().map(|i| voc.itos[*i as usize].clone()).collect(),
-        None => v.iter().filter_map(|i| char::from_u32(*i as u32)).collect(),
-    }
-}
 
 pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor) {
     let ix = Tensor::randint(
