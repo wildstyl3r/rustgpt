@@ -1,6 +1,6 @@
 use crate::{karpathy::block::TransformerBlock, language_model::LanguageModel};
 use tch::{
-    nn::{self, Module},
+    nn::{self, Module, ModuleT},
     Tensor,
 };
 
@@ -8,7 +8,7 @@ use tch::{
 pub struct TransformerLanguageModel {
     token_embedding_table: nn::Embedding,
     position_embedding_table: nn::Embedding,
-    blocks: nn::Sequential,
+    blocks: nn::SequentialT,
     final_ln: nn::LayerNorm,
     language_modeling_head: nn::Linear,
     block_size: i64,
@@ -38,7 +38,7 @@ impl TransformerLanguageModel {
             ),
             blocks: {
                 (0..n_blocks)
-                    .fold(nn::seq(), |s, i| {
+                    .fold(nn::seq_t(), |s, i| {
                         s.add(TransformerBlock::new(
                             &path / ("b".to_owned() + &i.to_string()),
                             n_embed,
@@ -65,8 +65,8 @@ impl TransformerLanguageModel {
     }
 }
 
-impl Module for TransformerLanguageModel {
-    fn forward(&self, idx: &Tensor) -> Tensor {
+impl ModuleT for TransformerLanguageModel {
+    fn forward_t(&self, idx: &Tensor, train: bool) -> Tensor {
         let (_b, t) = idx.size2().unwrap();
         let token_embeddings = self.token_embedding_table.forward(idx); //[B,T,C]
         let position_embeddings = self
@@ -75,7 +75,7 @@ impl Module for TransformerLanguageModel {
 
         let x = self
             .blocks
-            .forward(&(token_embeddings + position_embeddings));
+            .forward_t(&(token_embeddings + position_embeddings), train);
         //[B,T,vocab_size]
 
         self.language_modeling_head

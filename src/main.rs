@@ -1,7 +1,9 @@
 use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
 
+mod he_hofmann;
 mod karpathy;
 mod language_model;
+mod sukhbaatar;
 mod tokenizer;
 mod utils;
 use crate::karpathy::model::TransformerLanguageModel;
@@ -62,7 +64,7 @@ fn main() {
 
         let (xb, yb) = get_batch(&train_data, batch_size, block_size);
 
-        let (loss, _) = m.forward_with_loss(&xb, &yb);
+        let (loss, _) = m.forward_with_loss(&xb, &yb, true);
         optimizer.zero_grad();
         loss.backward();
         optimizer.step();

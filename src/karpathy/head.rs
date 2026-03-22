@@ -1,5 +1,5 @@
 use tch::{
-    nn::{self, Module},
+    nn::{self, Module, ModuleT},
     IndexOp, Tensor,
 };
 
@@ -58,15 +58,15 @@ impl Head {
     }
 }
 
-impl Module for Head {
-    fn forward(&self, x: &Tensor) -> Tensor {
+impl ModuleT for Head {
+    fn forward_t(&self, x: &Tensor, train: bool) -> Tensor {
         let (_b, t, c) = x.size3().unwrap();
         let k = self.key.forward(x);
         let q = self.query.forward(x);
         let wei = (q.matmul(&k.transpose(-2, -1)) * (c as f64).powf(-0.5))
             .masked_fill(&self.tril.i((..t, ..t)).eq(0), f64::NEG_INFINITY)
             .softmax(-1, tch::Kind::Float)
-            .dropout(self.dropout, true);
+            .dropout(self.dropout, train);
         wei.matmul(&self.value.forward(x))
     }
 }

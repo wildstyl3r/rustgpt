@@ -1,4 +1,7 @@
-use tch::{nn, Tensor};
+use tch::{
+    nn::{self, Module},
+    Tensor,
+};
 
 use crate::karpathy::{ffwd::FeedForward, multihead::MultiHead};
 
@@ -27,9 +30,9 @@ impl TransformerBlock {
         }
     }
 }
-impl nn::Module for TransformerBlock {
-    fn forward(&self, x: &tch::Tensor) -> Tensor {
-        let x = self.self_attention.forward(&self.sa_ln.forward(x)) + x;
+impl nn::ModuleT for TransformerBlock {
+    fn forward_t(&self, x: &tch::Tensor, train: bool) -> Tensor {
+        let x = self.self_attention.forward_t(&self.sa_ln.forward(x), train) + x;
         self.ffwd.forward(&self.ff_ln.forward(&x)) + x
     }
 }

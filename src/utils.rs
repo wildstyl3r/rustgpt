@@ -40,7 +40,7 @@ pub fn estimate_loss<M: LanguageModel>(
             &(0..eval_iters)
                 .map(|_| {
                     let (x, y) = get_batch(train_data, batch_size, block_size);
-                    let (loss, _) = m.forward_with_loss(&x, &y);
+                    let (loss, _) = m.forward_with_loss(&x, &y, false);
                     loss
                 })
                 .collect::<Vec<_>>(),
@@ -53,7 +53,7 @@ pub fn estimate_loss<M: LanguageModel>(
             &(0..eval_iters)
                 .map(|_| {
                     let (x, y) = get_batch(validation_data, batch_size, block_size);
-                    let (loss, _) = m.forward_with_loss(&x, &y);
+                    let (loss, _) = m.forward_with_loss(&x, &y, false);
                     loss
                 })
                 .collect::<Vec<_>>(),

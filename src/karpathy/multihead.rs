@@ -1,5 +1,5 @@
 use tch::{
-    nn::{self, Module},
+    nn::{self, Module, ModuleT},
     Tensor,
 };
 
@@ -39,11 +39,15 @@ impl MultiHead {
     }
 }
 
-impl Module for MultiHead {
-    fn forward(&self, x: &Tensor) -> Tensor {
+impl ModuleT for MultiHead {
+    fn forward_t(&self, x: &Tensor, train: bool) -> Tensor {
         self.projection
             .forward(&Tensor::cat(
-                &self.heads.iter().map(|h| h.forward(x)).collect::<Vec<_>>(),
+                &self
+                    .heads
+                    .iter()
+                    .map(|h| h.forward_t(x, train))
+                    .collect::<Vec<_>>(),
                 -1,
             ))
             .dropout(self.dropout, true)

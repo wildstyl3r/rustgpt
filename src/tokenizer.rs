@@ -43,7 +43,7 @@ impl Tokenizer {
             .map(|c| {
                 *self
                     .token_to_char
-                    .get(&c)
+                    .get(c)
                     .unwrap_or(self.token_to_char.get(&0).unwrap())
             })
             .collect()
