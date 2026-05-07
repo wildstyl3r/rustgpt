@@ -3,7 +3,7 @@ use tch::{
     Tensor,
 };
 
-use crate::karpathy::{ffwd::FeedForward, multihead::MultiHead};
+use crate::baseline::{ffwd::FeedForward, multihead::MultiHead};
 
 #[derive(Debug)]
 pub struct TransformerBlock {

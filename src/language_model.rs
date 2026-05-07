@@ -1,7 +1,4 @@
-use tch::{
-    nn::{Module, ModuleT},
-    IndexOp, Tensor,
-};
+use tch::{nn::ModuleT, IndexOp, Tensor};
 
 pub trait LanguageModel: ModuleT {
     fn forward_with_loss(&self, idx: &Tensor, targets: &Tensor, train: bool) -> (Tensor, Tensor) {

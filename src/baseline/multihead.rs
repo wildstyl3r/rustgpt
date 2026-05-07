@@ -3,7 +3,7 @@ use tch::{
     Tensor,
 };
 
-use crate::karpathy::head::Head;
+use crate::baseline::head::Head;
 
 #[derive(Debug)]
 pub struct MultiHead {

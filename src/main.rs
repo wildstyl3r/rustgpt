@@ -1,12 +1,9 @@
 use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
-
-mod he_hofmann;
-mod karpathy;
+mod baseline;
 mod language_model;
-mod sukhbaatar;
 mod tokenizer;
 mod utils;
-use crate::karpathy::model::TransformerLanguageModel;
+use crate::baseline::model::TransformerLanguageModel;
 use crate::language_model::LanguageModel;
 use crate::tokenizer::{Token, Tokenizer};
 use crate::utils::{estimate_loss, get_batch};
@@ -15,7 +12,7 @@ fn main() {
     tch::manual_seed(1337);
     let batch_size = 32;
     let block_size = 8;
-    let max_iters = 15001;
+    let max_iters = 1501;
     let eval_interval = 500;
     let learning_rate = 3e-3;
     let eval_iters = 200;
@@ -35,7 +32,7 @@ fn main() {
     let validation_data = data.i(n..len - 1);
 
     let vs = tch::nn::VarStore::new(data.device());
-    let m = TransformerLanguageModel::new(
+    let model = TransformerLanguageModel::new(
         vs.root(),
         tokenizer.vocabulary.len().try_into().unwrap(),
         n_embed,
@@ -54,7 +51,7 @@ fn main() {
                 &validation_data,
                 batch_size,
                 block_size,
-                &m,
+                &model,
             );
             println!(
                 "step: {}, train loss: {:.4}, val loss: {:.4}",
@@ -64,15 +61,23 @@ fn main() {
 
         let (xb, yb) = get_batch(&train_data, batch_size, block_size);
 
-        let (loss, _) = m.forward_with_loss(&xb, &yb, true);
+        let (loss, _) = model.forward_with_loss(&xb, &yb, true);
         optimizer.zero_grad();
         loss.backward();
         optimizer.step();
     }
 
+    let log_dir = std::path::Path::new("checkpoints").join(format!(
+        "run_{}_{}",
+        chrono::Local::now().format("%Y%m%d_%H%M"),
+        env!("GIT_HASH")
+    ));
+    std::fs::create_dir_all(&log_dir).unwrap();
+    vs.save(log_dir.join("model.safetensors")).unwrap();
+
     let idx = Tensor::zeros([1, batch_size], (tch::Kind::Int, tch::Device::Cpu));
     println!(
         "[{}]",
-        tokenizer.decode(&Vec::<Token>::try_from(m.generate(idx, 500).i(0)).unwrap())
+        tokenizer.decode(&Vec::<Token>::try_from(model.generate(idx, 500).i(0)).unwrap())
     );
 }
