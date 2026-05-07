@@ -1,6 +1,6 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufReader, BufWriter};
 
-use clap::builder::Str;
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
@@ -147,10 +147,31 @@ fn main() {
             ));
             fs::create_dir_all(&log_dir).unwrap();
             vs.save(log_dir.join("model.safetensors")).unwrap();
+            let tk_file = File::create(log_dir.join("tokenizer.json")).unwrap();
+            serde_json::to_writer(BufWriter::new(tk_file), &tokenizer).unwrap();
             (tokenizer, model, params)
         }
         Mode::Eval { checkpoint } => {
-            todo!()
+            let tk_file =
+                File::open(checkpoint.join("tokenizer.json")).expect("tokenizer not found");
+            let reader = BufReader::new(tk_file);
+            let tokenizer: Tokenizer = serde_json::from_reader(reader).unwrap();
+
+            let content =
+                std::fs::read_to_string(checkpoint.join("config.toml")).expect("Read error");
+            let params: TrainArgs = toml::from_str(&content).expect("TOML error");
+
+            let mut vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
+            let model = TransformerLanguageModel::new(
+                vs.root(),
+                tokenizer.vocabulary.len().try_into().unwrap(),
+                params.n_embed,
+                params.block_size,
+                params.n_blocks,
+                params.dropout,
+            );
+            vs.load(checkpoint.join("model.safetensors")).unwrap();
+            (tokenizer, model, params)
         }
     };
 

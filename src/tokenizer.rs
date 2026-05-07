@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 pub type Token = i64;
 
+#[derive(Serialize, Deserialize)]
 pub struct Tokenizer {
     pub vocabulary: Vec<char>,
     pub char_to_token: HashMap<char, Token>,
