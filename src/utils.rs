@@ -1,5 +1,5 @@
 use crate::language_model::LanguageModel;
-use tch::{IndexOp, Tensor};
+use tch::{IndexOp, TchError, Tensor};
 
 pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor) {
     let ix = Tensor::randint(
@@ -25,6 +25,12 @@ pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Te
             0,
         ),
     )
+}
+
+pub fn train_val_split(data: &Tensor, train_share: f32) -> Result<(Tensor, Tensor), TchError> {
+    let len = data.size1()?;
+    let n = (train_share * len as f32) as i64;
+    Ok((data.i(0..n), data.i(n..len - 1)))
 }
 
 pub fn estimate_loss<M: LanguageModel>(
