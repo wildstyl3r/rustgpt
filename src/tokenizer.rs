@@ -1,6 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::{BufReader, BufWriter},
+    path::PathBuf,
+    result,
+};
 
 use serde::{Deserialize, Serialize};
+use tch::TchError;
+use thiserror::Error;
 
 pub type Token = i64;
 
@@ -10,6 +18,19 @@ pub struct Tokenizer {
     pub char_to_token: HashMap<char, Token>,
     pub token_to_char: HashMap<Token, char>,
 }
+
+#[derive(Error, Debug)]
+pub enum TokenizerError {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("json serialization error: {0}")]
+    Serde(#[from] serde_json::Error),
+    // #[error("torch internal error: {0}")]
+    // Torch(#[from] TchError),
+}
+
+pub type Result<T> = result::Result<T, TokenizerError>;
 
 impl Tokenizer {
     pub fn new(s: &str) -> Self {
@@ -50,6 +71,15 @@ impl Tokenizer {
                     .unwrap_or(self.token_to_char.get(&0).unwrap())
             })
             .collect()
+    }
+
+    pub fn save(&self, path: PathBuf) -> Result<()> {
+        serde_json::to_writer(BufWriter::new(File::create(path)?), &self)?;
+        Ok(())
+    }
+
+    pub fn load(path: PathBuf) -> Result<Self> {
+        Ok(serde_json::from_reader(BufReader::new(File::open(path)?))?)
     }
 }
 

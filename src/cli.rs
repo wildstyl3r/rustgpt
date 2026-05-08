@@ -1,5 +1,20 @@
+use std::{path::PathBuf, result};
+
 use clap::{Args, Parser, Subcommand};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use toml::de;
+
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("toml deserialization error: {0}")]
+    Serde(#[from] de::Error),
+}
+
+pub type Result<T> = result::Result<T, ConfigError>;
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
 #[command(author, version, about)]
@@ -51,6 +66,12 @@ pub struct TrainArgs {
 
     #[command(flatten)]
     pub model: ModelArgs,
+}
+
+impl TrainArgs {
+    pub fn load(path: PathBuf) -> Result<Self> {
+        Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
+    }
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]

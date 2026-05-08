@@ -1,11 +1,11 @@
-use crate::{baseline::block::TransformerBlock, language_model::LanguageModel};
+use crate::{baseline::block::TransformerBlock, cli::ModelArgs, language_model::LanguageModel};
 use tch::{
     nn::{self, Module, ModuleT},
     Tensor,
 };
 
 #[derive(Debug)]
-pub struct TransformerLanguageModel {
+pub struct BaselineModel {
     token_embedding_table: nn::Embedding,
     position_embedding_table: nn::Embedding,
     blocks: nn::SequentialT,
@@ -14,58 +14,51 @@ pub struct TransformerLanguageModel {
     block_size: i64,
 }
 
-impl TransformerLanguageModel {
-    pub fn new(
-        path: nn::Path,
-        vocab_size: i64,
-        n_embed: i64,
-        block_size: i64,
-        n_blocks: i64,
-        dropout: f64,
-    ) -> Self {
-        TransformerLanguageModel {
+impl BaselineModel {
+    pub fn new(path: nn::Path, vocab_size: i64, config: &ModelArgs) -> Self {
+        BaselineModel {
             token_embedding_table: nn::embedding(
                 &path / "embedding",
                 vocab_size,
-                n_embed,
+                config.n_embed,
                 Default::default(),
             ),
             position_embedding_table: nn::embedding(
                 &path / "pos_embedding",
-                block_size,
-                n_embed,
+                config.block_size,
+                config.n_embed,
                 Default::default(),
             ),
             blocks: {
-                (0..n_blocks)
+                (0..config.n_blocks)
                     .fold(nn::seq_t(), |s, i| {
                         s.add(TransformerBlock::new(
                             &path / ("b".to_owned() + &i.to_string()),
-                            n_embed,
+                            config.n_embed,
                             4,
-                            block_size,
-                            dropout,
+                            config.block_size,
+                            config.dropout,
                         ))
                     })
                     .add(nn::layer_norm(
                         &path / "blocks_ln",
-                        vec![n_embed],
+                        vec![config.n_embed],
                         Default::default(),
                     ))
             },
-            final_ln: nn::layer_norm(&path / "ln_f", vec![n_embed], Default::default()),
+            final_ln: nn::layer_norm(&path / "ln_f", vec![config.n_embed], Default::default()),
             language_modeling_head: nn::linear(
                 &path / "lm_head",
-                n_embed,
+                config.n_embed,
                 vocab_size,
                 Default::default(),
             ),
-            block_size,
+            block_size: config.block_size,
         }
     }
 }
 
-impl ModuleT for TransformerLanguageModel {
+impl ModuleT for BaselineModel {
     fn forward_t(&self, idx: &Tensor, train: bool) -> Tensor {
         let (_b, t) = idx.size2().unwrap();
         let token_embeddings = self.token_embedding_table.forward(idx); //[B,T,C]
@@ -83,7 +76,7 @@ impl ModuleT for TransformerLanguageModel {
     }
 }
 
-impl LanguageModel for TransformerLanguageModel {
+impl LanguageModel for BaselineModel {
     fn get_block_size(&self) -> i64 {
         self.block_size
     }
