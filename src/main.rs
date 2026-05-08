@@ -32,9 +32,12 @@ fn main() -> Result<()> {
             };
             tch::manual_seed(1337);
 
-            let text = std::fs::read_to_string(&params.input_path)?;
+            let text = std::fs::read_to_string(&params.dataset.input_path)?;
             let tokenizer = Tokenizer::new(&text);
-            let (train, val) = train_val_split(&Tensor::from_slice(&tokenizer.encode(&text)), 0.9)?;
+            let (train, val) = train_val_split(
+                &Tensor::from_slice(&tokenizer.encode(&text)),
+                params.dataset.train_share,
+            )?;
 
             let vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
             let model = TransformerLanguageModel::new(

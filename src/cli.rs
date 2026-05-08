@@ -46,11 +46,20 @@ pub struct TrainArgs {
     #[arg(long, default_value_t = 32)]
     pub batch_size: i64,
 
-    #[arg(long, default_value = "input.txt")]
-    pub input_path: String,
+    #[command(flatten)]
+    pub dataset: DatasetArgs,
 
     #[command(flatten)]
     pub model: ModelArgs,
+}
+
+#[derive(Args, Debug, Serialize, Deserialize)]
+pub struct DatasetArgs {
+    #[arg(long, default_value_t = 0.9)]
+    pub train_share: f32,
+
+    #[arg(long, default_value = "input.txt")]
+    pub input_path: String,
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]
