@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use tch::{nn::ModuleT, IndexOp, Tensor};
 
 pub trait LanguageModel: ModuleT {
@@ -9,12 +11,12 @@ pub trait LanguageModel: ModuleT {
         (logits.cross_entropy_for_logits(&targets), logits)
     }
 
-    fn get_block_size(&self) -> i64;
+    fn get_context_window(&self) -> i64;
 
     fn generate(&self, mut idx: Tensor, max_new_tokens: usize) -> Tensor {
         for _ in 0..max_new_tokens {
             let (_x, y) = idx.size2().unwrap();
-            let idx_cond = idx.i((.., y - (self.get_block_size())..));
+            let idx_cond = idx.i((.., max(0, y - (self.get_context_window()))..));
             let logits = self.forward_t(&idx_cond, false);
             let logits = logits.i((.., -1, ..));
             let probs = logits.softmax(-1, tch::Kind::Float);

@@ -7,7 +7,6 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tch::TchError;
 use thiserror::Error;
 
 pub type Token = i64;

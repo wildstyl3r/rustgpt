@@ -1,4 +1,4 @@
-use crate::{cli::TrainArgs, language_model::LanguageModel};
+use crate::{cli::TrainConfig, interface::LanguageModel};
 use tch::{IndexOp, TchError, Tensor};
 
 pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor) {
@@ -34,7 +34,7 @@ pub fn train_val_split(data: &Tensor, train_share: f32) -> Result<(Tensor, Tenso
 }
 
 pub fn estimate_loss<M: LanguageModel>(
-    config: &TrainArgs,
+    config: &TrainConfig,
     train_data: &Tensor,
     validation_data: &Tensor,
     m: &M,
@@ -43,7 +43,8 @@ pub fn estimate_loss<M: LanguageModel>(
         let losses_train = Tensor::stack(
             &(0..config.eval_iters)
                 .map(|_| {
-                    let (x, y) = get_batch(train_data, config.batch_size, config.model.block_size);
+                    let (x, y) =
+                        get_batch(train_data, config.batch_size, config.model.context_window);
                     let (loss, _) = m.forward_with_loss(&x, &y, false);
                     loss
                 })
@@ -56,8 +57,11 @@ pub fn estimate_loss<M: LanguageModel>(
         let losses_val = Tensor::stack(
             &(0..config.eval_iters)
                 .map(|_| {
-                    let (x, y) =
-                        get_batch(validation_data, config.batch_size, config.model.block_size);
+                    let (x, y) = get_batch(
+                        validation_data,
+                        config.batch_size,
+                        config.model.context_window,
+                    );
                     let (loss, _) = m.forward_with_loss(&x, &y, false);
                     loss
                 })

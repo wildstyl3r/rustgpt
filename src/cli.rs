@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::de;
 
+use crate::lm::ModelConfig;
+
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("io error: {0}")]
@@ -27,7 +29,7 @@ pub struct Cli {
 pub enum Mode {
     Train {
         #[command(subcommand)]
-        config: Config,
+        config: ConfigSource,
     },
     Eval {
         #[arg(long)]
@@ -36,16 +38,16 @@ pub enum Mode {
 }
 
 #[derive(Subcommand, Debug, Serialize, Deserialize)]
-pub enum Config {
+pub enum ConfigSource {
     File {
         #[arg(long)]
         path: std::path::PathBuf,
     },
-    Cli(TrainArgs),
+    Cli(TrainConfig),
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]
-pub struct TrainArgs {
+pub struct TrainConfig {
     #[arg(long, default_value_t = 3e-3)]
     pub learning_rate: f64,
 
@@ -62,38 +64,23 @@ pub struct TrainArgs {
     pub batch_size: i64,
 
     #[command(flatten)]
-    pub dataset: DatasetArgs,
+    pub dataset: DatasetConfig,
 
     #[command(flatten)]
-    pub model: ModelArgs,
+    pub model: ModelConfig,
 }
 
-impl TrainArgs {
+impl TrainConfig {
     pub fn load(path: PathBuf) -> Result<Self> {
         Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
     }
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]
-pub struct DatasetArgs {
+pub struct DatasetConfig {
     #[arg(long, default_value_t = 0.9)]
     pub train_share: f32,
 
     #[arg(long, default_value = "input.txt")]
     pub input_path: String,
-}
-
-#[derive(Args, Debug, Serialize, Deserialize)]
-pub struct ModelArgs {
-    #[arg(long, default_value_t = 0.2)]
-    pub dropout: f64,
-
-    #[arg(long, default_value_t = 8)]
-    pub block_size: i64,
-
-    #[arg(long, default_value_t = 4)]
-    pub n_blocks: i64,
-
-    #[arg(long, default_value_t = 32)]
-    pub n_embed: i64,
 }

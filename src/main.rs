@@ -1,18 +1,18 @@
 use std::fs::{self};
+use std::time::Instant;
 
 use anyhow::Result;
 use clap::Parser;
 use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
 
-mod baseline;
 mod cli;
-mod language_model;
+mod interface;
+mod lm;
 mod tokenizer;
 mod utils;
 
-use crate::baseline::model::BaselineModel;
-use crate::cli::{Cli, Config, Mode, TrainArgs};
-use crate::language_model::LanguageModel;
+use crate::cli::{Cli, ConfigSource, Mode, TrainConfig};
+use crate::interface::LanguageModel;
 use crate::tokenizer::{Token, Tokenizer};
 use crate::utils::{estimate_loss, get_batch, train_val_split};
 
@@ -23,8 +23,8 @@ fn main() -> Result<()> {
     let (tokenizer, model) = match cli.mode {
         Mode::Train { config } => {
             let config = match config {
-                Config::File { path } => TrainArgs::load(path)?,
-                Config::Cli(config) => config,
+                ConfigSource::File { path } => TrainConfig::load(path)?,
+                ConfigSource::Cli(config) => config,
             };
             tch::manual_seed(1337);
 
@@ -36,11 +36,20 @@ fn main() -> Result<()> {
             )?;
 
             let vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
-            let model =
-                BaselineModel::new(vs.root(), tokenizer.vocabulary.len() as i64, &config.model);
+            let model = lm::Model::<nn::Embedding>::new::<
+                lm::block::SequentialBlock<
+                    nn::LayerNorm,
+                    lm::block::attention::MultiHeadSelfAttention<
+                        lm::position_embedding::None,
+                        lm::block::activation::Softmax,
+                    >,
+                    lm::block::storage::FeedForward,
+                >,
+            >(vs.root(), tokenizer.vocabulary.len() as i64, &config.model);
 
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
+            let start = Instant::now();
             for i in 0..config.max_iters {
                 if i % config.eval_interval == 0 {
                     let losses = estimate_loss(&config, &train, &val, &model);
@@ -50,13 +59,14 @@ fn main() -> Result<()> {
                     );
                 }
 
-                let (xb, yb) = get_batch(&train, config.batch_size, config.model.block_size);
+                let (xb, yb) = get_batch(&train, config.batch_size, config.model.context_window);
 
                 let (loss, _) = model.forward_with_loss(&xb, &yb, true);
                 optimizer.zero_grad();
                 loss.backward();
                 optimizer.step();
             }
+            println!("elapsed time: {:?}", start.elapsed());
 
             let log_dir = std::path::Path::new("checkpoints").join(format!(
                 "run_{}_{}",
@@ -66,18 +76,27 @@ fn main() -> Result<()> {
             fs::create_dir_all(&log_dir)?;
             vs.save(log_dir.join("model.safetensors"))?;
             tokenizer.save(log_dir.join("tokenizer.json"))?;
-            (tokenizer, model)
+            (tokenizer, Box::new(model) as Box<dyn LanguageModel>)
         }
         Mode::Eval { checkpoint } => {
             let mut vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
             let tokenizer = Tokenizer::load(checkpoint.join("tokenizer.json"))?;
-            let model = BaselineModel::new(
+            let model = lm::Model::<nn::Embedding>::new::<
+                lm::block::SequentialBlock<
+                    nn::LayerNorm,
+                    lm::block::attention::MultiHeadSelfAttention<
+                        lm::position_embedding::None,
+                        lm::block::activation::Softmax,
+                    >,
+                    lm::block::storage::FeedForward,
+                >,
+            >(
                 vs.root(),
                 tokenizer.vocabulary.len() as i64,
-                &TrainArgs::load(checkpoint.join("config.toml"))?.model,
+                &TrainConfig::load(checkpoint.join("config.toml"))?.model,
             );
             vs.load(checkpoint.join("model.safetensors"))?;
-            (tokenizer, model)
+            (tokenizer, Box::new(model) as Box<dyn LanguageModel>)
         }
     };
 
