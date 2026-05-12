@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use anyhow::Result;
 use clap::Parser;
+use serde::Serialize;
 use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
 
 mod cli;
@@ -74,6 +75,10 @@ fn main() -> Result<()> {
                 git_hash
             ));
             fs::create_dir_all(&log_dir)?;
+            fs::write(
+                log_dir.join("config.toml"),
+                toml::to_string_pretty(&config)?,
+            )?;
             vs.save(log_dir.join("model.safetensors"))?;
             tokenizer.save(log_dir.join("tokenizer.json"))?;
             (tokenizer, Box::new(model) as Box<dyn LanguageModel>)
