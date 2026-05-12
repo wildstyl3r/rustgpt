@@ -21,7 +21,7 @@ pub struct BlockConfig {
     #[command(flatten)]
     pub self_attention: attention::SelfAttentionGroup,
 
-    #[arg(long, value_enum, default_value_t = storage::StorageOptions::FeedForward)]
+    #[arg(long, value_enum, default_value_t = storage::StorageOptions::Feedforward)]
     pub storage: storage::StorageOptions,
 }
 
@@ -32,18 +32,6 @@ pub struct BlockGroup {
     #[command(flatten)]
     pub block_config: BlockConfig,
 }
-
-// impl BlockGroup {
-//     pub fn make_enum(&self) -> BlockType {
-//         if let Some(config) = &self.sequential {
-//             BlockType::Sequential(config.clone())
-//         } else if let Some(config) = &self.parallel {
-//             BlockType::Parallel(config.clone())
-//         } else {
-//             unimplemented!()
-//         }
-//     }
-// }
 
 #[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
 pub enum BlockOption {

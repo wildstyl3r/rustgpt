@@ -4,7 +4,7 @@ use tch::nn::{self, Module};
 
 #[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
 pub enum StorageOptions {
-    FeedForward,
+    Feedforward,
 }
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ impl Module for Storage {
 
 pub fn storage(path: nn::Path, options: &StorageOptions, emb_dim: i64, dropout: f64) -> Storage {
     match options {
-        StorageOptions::FeedForward => Storage::FeedForward(
+        StorageOptions::Feedforward => Storage::FeedForward(
             nn::seq()
                 .add(nn::linear(
                     &path / "l1",

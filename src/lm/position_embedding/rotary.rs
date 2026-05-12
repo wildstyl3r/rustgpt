@@ -4,8 +4,8 @@ use tch::nn;
 
 #[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
 pub enum PositionEmbeddingOptions {
-    RoPE,
-    PoPE,
+    Rope,
+    Pope,
     None,
 }
 
@@ -31,8 +31,8 @@ pub fn embedding(
     context_window: i64,
 ) -> PositionEmbedding {
     match options {
-        PositionEmbeddingOptions::RoPE => todo!(),
-        PositionEmbeddingOptions::PoPE => todo!(),
+        PositionEmbeddingOptions::Rope => todo!(),
+        PositionEmbeddingOptions::Pope => todo!(),
         PositionEmbeddingOptions::None => PositionEmbedding::None,
     }
 }

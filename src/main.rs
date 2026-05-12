@@ -73,7 +73,8 @@ fn main() -> Result<()> {
             tokenizer.save(log_dir.join("tokenizer.json"))?;
             (tokenizer, Box::new(model) as Box<dyn LanguageModel>)
         }
-        Mode::Eval { checkpoint } => {
+        Mode::Eval { checkpoint, seed } => {
+            tch::manual_seed(seed);
             let mut vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
             let tokenizer = Tokenizer::load(checkpoint.join("tokenizer.json"))?;
             let model = lm::Model::new(

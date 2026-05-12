@@ -110,7 +110,6 @@ pub struct MultiHeadSelfAttention {
 }
 impl ModuleT for MultiHeadSelfAttention {
     fn forward_t(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
-        //[b, t, proj_out_dim] = [b, t, num_heads * head_dim]
         let q = &self.query.forward(xs) * self.vec_scale;
         let k = &self.key.forward(xs) * self.vec_scale;
 

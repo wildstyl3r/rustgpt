@@ -27,22 +27,28 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug, Serialize, Deserialize)]
 pub enum Mode {
+    /// Train a model with provided configuration
     Train {
         #[command(subcommand)]
         config: ConfigSource,
     },
+    /// Load model weights from a checkpoint
     Eval {
-        #[arg(long)]
+        /// Relative path to the checkpoint directory
         checkpoint: std::path::PathBuf,
+        #[arg(long, default_value_t = 1337)]
+        seed: i64,
     },
 }
 
 #[derive(Subcommand, Debug, Serialize, Deserialize)]
 pub enum ConfigSource {
+    /// Load the model training configuration from a specified file
     File {
-        #[arg(long)]
+        /// Relative path to the model configuration in TOML format
         path: std::path::PathBuf,
     },
+    /// Set up all the parameters using CLI flags
     Cli(TrainConfig),
 }
 
@@ -81,6 +87,6 @@ pub struct DatasetConfig {
     #[arg(long, default_value_t = 0.9)]
     pub train_share: f32,
 
-    #[arg(long, default_value = "input.txt")]
+    #[arg(long, default_value = "shakespeare.txt")]
     pub input_path: String,
 }
