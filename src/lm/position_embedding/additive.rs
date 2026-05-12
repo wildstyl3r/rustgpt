@@ -1,8 +1,8 @@
 use tch::nn::{self, Module};
 
 impl super::Additive for nn::Embedding {
-    fn new(vs: nn::Path, block_size: i64, emb_dim: i64) -> Self {
-        nn::embedding(vs, block_size, emb_dim, Default::default())
+    fn new(vs: nn::Path, context_window: i64, emb_dim: i64) -> Self {
+        nn::embedding(vs, context_window, emb_dim, Default::default())
     }
 
     fn inject(&self, x: tch::Tensor) -> tch::Tensor {

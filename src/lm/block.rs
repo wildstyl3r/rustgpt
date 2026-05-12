@@ -48,7 +48,7 @@ impl<N: Norm, S: attention::SelfAttention, M: storage::Storage> TransformerBlock
         emb_dim: i64,
         multihead_dim: i64,
         num_heads: i64,
-        block_size: i64,
+        context_window: i64,
         dropout: f64,
         causal_mask: Tensor,
     ) -> Self {
@@ -61,7 +61,7 @@ impl<N: Norm, S: attention::SelfAttention, M: storage::Storage> TransformerBlock
                 num_heads,
                 dropout,
                 causal_mask,
-                block_size,
+                context_window,
             ),
             storage_norm: N::new(&path / "st_norm", emb_dim),
             storage: M::new(&path / "storage", emb_dim, dropout),

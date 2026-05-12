@@ -1,9 +1,9 @@
 use crate::{cli::TrainConfig, interface::LanguageModel};
 use tch::{IndexOp, TchError, Tensor};
 
-pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Tensor) {
+pub fn get_batch(data: &Tensor, batch_size: i64, context_window: i64) -> (Tensor, Tensor) {
     let ix = Tensor::randint(
-        data.size1().unwrap() - block_size,
+        data.size1().unwrap() - context_window,
         [batch_size],
         (tch::Kind::Int, tch::Device::Cpu),
     );
@@ -12,7 +12,7 @@ pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Te
             //context
             &ix.iter::<i64>()
                 .unwrap()
-                .map(|i| data.i(i..i + block_size))
+                .map(|i| data.i(i..i + context_window))
                 .collect::<Vec<_>>(),
             0,
         ),
@@ -20,7 +20,7 @@ pub fn get_batch(data: &Tensor, batch_size: i64, block_size: i64) -> (Tensor, Te
             //target
             &ix.iter::<i64>()
                 .unwrap()
-                .map(|i| data.i(i + 1..i + block_size + 1))
+                .map(|i| data.i(i + 1..i + context_window + 1))
                 .collect::<Vec<_>>(),
             0,
         ),
