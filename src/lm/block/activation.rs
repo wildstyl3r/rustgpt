@@ -1,21 +1,31 @@
+use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-pub trait AttentionActivation: Debug + Send + 'static {
-    fn apply(xs: &tch::Tensor) -> tch::Tensor;
+#[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
+pub enum AttentionActivationOptions {
+    Softmax,
+    ReLU,
 }
 
 #[derive(Debug)]
-pub struct Softmax;
-impl AttentionActivation for Softmax {
-    fn apply(xs: &tch::Tensor) -> tch::Tensor {
-        xs.softmax(-1, tch::Kind::Float)
+pub enum AttentionActivation {
+    Softmax,
+    ReLU,
+}
+
+impl AttentionActivation {
+    pub fn apply(&self, x: &tch::Tensor) -> tch::Tensor {
+        match self {
+            AttentionActivation::Softmax => x.softmax(-1, tch::Kind::Float),
+            AttentionActivation::ReLU => x.relu(),
+        }
     }
 }
 
-#[derive(Debug)]
-pub struct ReLU;
-impl AttentionActivation for ReLU {
-    fn apply(xs: &tch::Tensor) -> tch::Tensor {
-        xs.relu()
+pub fn attention_activation(options: &AttentionActivationOptions) -> AttentionActivation {
+    match options {
+        AttentionActivationOptions::Softmax => AttentionActivation::Softmax,
+        AttentionActivationOptions::ReLU => AttentionActivation::ReLU,
     }
 }

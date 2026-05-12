@@ -3,7 +3,6 @@ use std::time::Instant;
 
 use anyhow::Result;
 use clap::Parser;
-use serde::Serialize;
 use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
 
 mod cli;
@@ -37,16 +36,7 @@ fn main() -> Result<()> {
             )?;
 
             let vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
-            let model = lm::Model::<nn::Embedding>::new::<
-                lm::block::SequentialBlock<
-                    nn::LayerNorm,
-                    lm::block::attention::MultiHeadSelfAttention<
-                        lm::position_embedding::None,
-                        lm::block::activation::Softmax,
-                    >,
-                    lm::block::storage::FeedForward,
-                >,
-            >(vs.root(), tokenizer.vocabulary.len() as i64, &config.model);
+            let model = lm::Model::new(vs.root(), tokenizer.vocabulary.len() as i64, &config.model);
 
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
@@ -86,16 +76,7 @@ fn main() -> Result<()> {
         Mode::Eval { checkpoint } => {
             let mut vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
             let tokenizer = Tokenizer::load(checkpoint.join("tokenizer.json"))?;
-            let model = lm::Model::<nn::Embedding>::new::<
-                lm::block::SequentialBlock<
-                    nn::LayerNorm,
-                    lm::block::attention::MultiHeadSelfAttention<
-                        lm::position_embedding::None,
-                        lm::block::activation::Softmax,
-                    >,
-                    lm::block::storage::FeedForward,
-                >,
-            >(
+            let model = lm::Model::new(
                 vs.root(),
                 tokenizer.vocabulary.len() as i64,
                 &TrainConfig::load(checkpoint.join("config.toml"))?.model,

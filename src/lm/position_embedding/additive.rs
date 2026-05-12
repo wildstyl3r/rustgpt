@@ -1,20 +1,44 @@
+use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 use tch::nn::{self, Module};
 
-impl super::Additive for nn::Embedding {
-    fn new(vs: nn::Path, context_window: i64, emb_dim: i64) -> Self {
-        nn::embedding(vs, context_window, emb_dim, Default::default())
-    }
+#[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
+pub enum PositionEmbeddingOptions {
+    Trainable,
+    None,
+}
 
-    fn inject(&self, x: tch::Tensor) -> tch::Tensor {
-        let (_b, t, _c) = x.size3().unwrap();
-        x + self.forward(&tch::Tensor::arange(t, (tch::Kind::Int, tch::Device::Cpu)))
+#[derive(Debug)]
+pub enum PositionEmbedding {
+    Trainable(nn::Embedding),
+    None,
+}
+
+impl PositionEmbedding {
+    pub fn inject(&self, x: tch::Tensor) -> tch::Tensor {
+        match self {
+            PositionEmbedding::Trainable(embedding) => {
+                let (_b, t, _c) = x.size3().unwrap();
+                x + embedding.forward(&tch::Tensor::arange(t, (tch::Kind::Int, tch::Device::Cpu)))
+            }
+            PositionEmbedding::None => x,
+        }
     }
 }
 
-impl super::Additive for super::None {
-    fn new(_: nn::Path, _: i64, _: i64) -> Self {}
-
-    fn inject(&self, x: tch::Tensor) -> tch::Tensor {
-        x
+pub fn embedding(
+    options: &PositionEmbeddingOptions,
+    path: nn::Path,
+    emb_dim: i64,
+    context_window: i64,
+) -> PositionEmbedding {
+    match options {
+        PositionEmbeddingOptions::Trainable => PositionEmbedding::Trainable(nn::embedding(
+            path,
+            context_window,
+            emb_dim,
+            Default::default(),
+        )),
+        PositionEmbeddingOptions::None => PositionEmbedding::None,
     }
 }

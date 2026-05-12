@@ -1,7 +1,7 @@
 pub mod block;
 pub mod norm;
 pub mod position_embedding;
-use crate::{interface::LanguageModel, lm::block::TransformerBlock};
+use crate::interface::LanguageModel;
 
 use clap::Args;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,9 @@ use tch::{
 
 #[derive(Args, Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
+    #[arg(long, value_enum,default_value_t = position_embedding::additive::PositionEmbeddingOptions::Trainable)]
+    pub additive_pe: position_embedding::additive::PositionEmbeddingOptions,
+
     #[arg(long, default_value_t = 0.2)]
     pub dropout: f64,
 
@@ -21,28 +24,26 @@ pub struct ModelConfig {
     #[arg(long, default_value_t = 4)]
     pub n_blocks: i64,
 
+    #[command(flatten)]
+    pub block: block::BlockGroup,
+
     #[arg(long, default_value_t = 32)]
     pub emb_dim: i64,
-
-    #[arg(long, default_value_t = 32)]
-    pub multihead_dim: i64,
-
-    #[arg(long, default_value_t = 4)]
-    pub num_heads: i64,
 }
 
 #[derive(Debug)]
-pub struct Model<A: position_embedding::Additive> {
+pub struct Model {
     token_embedding_table: nn::Embedding,
-    additive_pe: A,
+    additive_pe: position_embedding::additive::PositionEmbedding,
     blocks: nn::SequentialT,
+
     final_ln: nn::LayerNorm,
     language_modeling_head: nn::Linear,
     context_window: i64,
 }
 
-impl<A: position_embedding::Additive + std::fmt::Debug> Model<A> {
-    pub fn new<B: TransformerBlock>(path: nn::Path, vocab_size: i64, config: &ModelConfig) -> Self {
+impl Model {
+    pub fn new(path: nn::Path, vocab_size: i64, config: &ModelConfig) -> Self {
         let causal_mask = Tensor::ones(
             [config.context_window, config.context_window],
             (tch::Kind::Float, tch::Device::Cpu),
@@ -57,15 +58,20 @@ impl<A: position_embedding::Additive + std::fmt::Debug> Model<A> {
                 config.emb_dim,
                 Default::default(),
             ),
-            additive_pe: A::new(&path / "additive_pe", config.context_window, config.emb_dim),
+            additive_pe: position_embedding::additive::embedding(
+                &config.additive_pe,
+                &path / "additive_pe",
+                config.emb_dim,
+                config.context_window,
+            ),
             blocks: {
                 (0..config.n_blocks)
                     .fold(nn::seq_t(), |s, i| {
-                        s.add(B::new(
+                        s.add(block::block(
                             &path / ("b".to_owned() + &i.to_string()),
+                            &config.block.block_option,
+                            &config.block.block_config,
                             config.emb_dim,
-                            config.multihead_dim,
-                            config.num_heads,
                             config.context_window,
                             config.dropout,
                             causal_mask.shallow_clone(),
@@ -89,7 +95,7 @@ impl<A: position_embedding::Additive + std::fmt::Debug> Model<A> {
     }
 }
 
-impl<A: position_embedding::Additive + std::fmt::Debug> ModuleT for Model<A> {
+impl ModuleT for Model {
     fn forward_t(&self, idx: &Tensor, train: bool) -> Tensor {
         let token_embeddings = self.token_embedding_table.forward(idx);
 
@@ -102,7 +108,7 @@ impl<A: position_embedding::Additive + std::fmt::Debug> ModuleT for Model<A> {
     }
 }
 
-impl<A: position_embedding::Additive> LanguageModel for Model<A> {
+impl LanguageModel for Model {
     fn get_context_window(&self) -> i64 {
         self.context_window
     }

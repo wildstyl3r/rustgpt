@@ -1,23 +1,29 @@
+use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 use tch::nn::{self, Module};
 
-pub trait Storage: Module + Send + 'static {
-    fn new(path: nn::Path, emb_dim: i64, dropout: f64) -> Self;
+#[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
+pub enum StorageOptions {
+    FeedForward,
 }
 
 #[derive(Debug)]
-pub struct FeedForward {
-    net: nn::Sequential,
+pub enum Storage {
+    FeedForward(nn::Sequential),
 }
 
-impl Module for FeedForward {
+impl Module for Storage {
     fn forward(&self, xs: &tch::Tensor) -> tch::Tensor {
-        self.net.forward(xs)
+        match self {
+            Storage::FeedForward(sequential) => sequential.forward(xs),
+        }
     }
 }
-impl Storage for FeedForward {
-    fn new(path: nn::Path, emb_dim: i64, dropout: f64) -> Self {
-        Self {
-            net: nn::seq()
+
+pub fn storage(path: nn::Path, options: &StorageOptions, emb_dim: i64, dropout: f64) -> Storage {
+    match options {
+        StorageOptions::FeedForward => Storage::FeedForward(
+            nn::seq()
                 .add(nn::linear(
                     &path / "l1",
                     emb_dim,
@@ -32,6 +38,6 @@ impl Storage for FeedForward {
                     Default::default(),
                 ))
                 .add_fn(move |xs| xs.dropout(dropout, true)),
-        }
+        ),
     }
 }
