@@ -42,13 +42,14 @@ pub enum BlockOption {
 #[derive(Debug)]
 pub enum Block {
     Sequential(SequentialBlock),
-    // Parallel(todo!()),
+    Parallel(ParallelBlock),
 }
 
 impl ModuleT for Block {
     fn forward_t(&self, xs: &Tensor, train: bool) -> Tensor {
         match self {
             Block::Sequential(sequential_block) => sequential_block.forward_t(xs, train),
+            Block::Parallel(parallel_block) => parallel_block.forward_t(xs, train),
         }
     }
 }
@@ -71,7 +72,14 @@ pub fn block(
             dropout,
             causal_mask,
         )),
-        BlockOption::Parallel => todo!(),
+        BlockOption::Parallel => Block::Parallel(ParallelBlock::new(
+            path,
+            emb_dim,
+            config,
+            context_window,
+            dropout,
+            causal_mask,
+        )),
     }
 }
 
@@ -114,6 +122,45 @@ impl SequentialBlock {
                 context_window,
             ),
             storage_norm: norm::norm(&path / "st_norm", &config.norm, emb_dim),
+            storage: storage::storage(&path / "storage", &config.storage, emb_dim, dropout),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ParallelBlock {
+    common_norm: Norm,
+    self_attention: SelfAttention,
+    storage: Storage,
+}
+
+impl ModuleT for ParallelBlock {
+    fn forward_t(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
+        let norm_xs = self.common_norm.forward(xs);
+        xs + self.self_attention.forward_t(&norm_xs, train) + self.storage.forward(&norm_xs)
+    }
+}
+
+impl ParallelBlock {
+    fn new(
+        path: nn::Path,
+        emb_dim: i64,
+        config: &BlockConfig,
+        context_window: i64,
+        dropout: f64,
+        causal_mask: Tensor,
+    ) -> Self {
+        Self {
+            common_norm: norm::norm(&path / "norm", &config.norm, emb_dim),
+            self_attention: attention::self_attention(
+                &path / "self_attention",
+                &config.self_attention.attention_option,
+                &config.self_attention.attention_config,
+                emb_dim,
+                dropout,
+                causal_mask,
+                context_window,
+            ),
             storage: storage::storage(&path / "storage", &config.storage, emb_dim, dropout),
         }
     }

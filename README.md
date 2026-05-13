@@ -6,8 +6,8 @@ Project is focused primarily on tiny models and training/inference on CPU.
 
 - [x] model weights saving and loading (May 2026)
 - [x] enum dispatch based model construction managed from CLI (May 13, 2026)
-- [ ] RMSnorm
-- [ ] parallel transformer block
+- [x] RMSnorm (May 13, 2026)
+- [x] parallel transformer block (May 13, 2026)
 - [ ] BPE tokenizer
 - [ ] rotary position embedding
 - [ ] polar position embedding
