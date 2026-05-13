@@ -5,7 +5,7 @@ use std::fmt::Debug;
 #[derive(ValueEnum, Debug, Serialize, Deserialize, Clone)]
 pub enum AttentionActivationOptions {
     Softmax,
-    ReLU,
+    Relu,
 }
 
 #[derive(Debug)]
@@ -26,6 +26,6 @@ impl AttentionActivation {
 pub fn attention_activation(options: &AttentionActivationOptions) -> AttentionActivation {
     match options {
         AttentionActivationOptions::Softmax => AttentionActivation::Softmax,
-        AttentionActivationOptions::ReLU => AttentionActivation::ReLU,
+        AttentionActivationOptions::Relu => AttentionActivation::ReLU,
     }
 }
