@@ -12,6 +12,7 @@ Project is focused primarily on tiny models and training/inference on CPU.
 - [ ] rotary position embedding
 - [ ] polar position embedding
 - [ ] KV-caching
+- [ ] speculative decoding
 - [ ] random feature attention
 - [ ] MQA
 - [ ] GQA
