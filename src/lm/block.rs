@@ -15,7 +15,7 @@ use tch::{
 
 #[derive(Args, Debug, Serialize, Deserialize, Clone)]
 pub struct BlockConfig {
-    #[arg(long, value_enum, default_value_t = norm::NormOptions::RMSNorm)]
+    #[arg(long, value_enum, default_value_t = norm::NormOptions::LayerNorm)]
     pub norm: norm::NormOptions,
 
     #[command(flatten)]
@@ -27,7 +27,7 @@ pub struct BlockConfig {
 
 #[derive(Args, Debug, Serialize, Deserialize)]
 pub struct BlockGroup {
-    #[arg(value_enum, long, default_value_t = BlockOption::Sequential)]
+    #[arg(value_enum, long = "block", default_value_t = BlockOption::Sequential)]
     pub block_option: BlockOption,
     #[command(flatten)]
     pub block_config: BlockConfig,

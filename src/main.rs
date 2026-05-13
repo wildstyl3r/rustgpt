@@ -16,6 +16,13 @@ use crate::interface::LanguageModel;
 use crate::tokenizer::{Token, Tokenizer};
 use crate::utils::{estimate_loss, get_batch, train_val_split};
 
+#[derive(serde::Serialize)]
+struct LossRecord {
+    step: i64,
+    train_loss: f64,
+    val_loss: f64,
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let git_hash = env!("GIT_HASH");
@@ -26,6 +33,7 @@ fn main() -> Result<()> {
                 ConfigSource::File { path } => TrainConfig::load(path)?,
                 ConfigSource::Cli(config) => config,
             };
+
             tch::manual_seed(1337);
 
             let text = std::fs::read_to_string(&config.dataset.input_path)?;
@@ -40,14 +48,26 @@ fn main() -> Result<()> {
 
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
+            let log_dir = std::path::Path::new("checkpoints").join(format!(
+                "run_{}_{}",
+                chrono::Local::now().format("%Y%m%d_%H%M"),
+                git_hash
+            ));
+            fs::create_dir_all(&log_dir)?;
+            let mut wtr = csv::Writer::from_path(log_dir.join("losses.csv"))?;
             let start = Instant::now();
-            for i in 0..config.max_iters {
-                if i % config.eval_interval == 0 {
+            for step in 0..config.max_iters {
+                if step % config.eval_interval == 0 {
                     let losses = estimate_loss(&config, &train, &val, &model);
                     println!(
                         "step: {}, train loss: {:.4}, val loss: {:.4}",
-                        i, losses.0, losses.1
+                        step, losses.0, losses.1
                     );
+                    wtr.serialize(LossRecord {
+                        step,
+                        train_loss: losses.0,
+                        val_loss: losses.1,
+                    })?;
                 }
 
                 let (xb, yb) = get_batch(&train, config.batch_size, config.model.context_window);
@@ -57,14 +77,9 @@ fn main() -> Result<()> {
                 loss.backward();
                 optimizer.step();
             }
+            wtr.flush()?;
             println!("elapsed time: {:?}", start.elapsed());
 
-            let log_dir = std::path::Path::new("checkpoints").join(format!(
-                "run_{}_{}",
-                chrono::Local::now().format("%Y%m%d_%H%M"),
-                git_hash
-            ));
-            fs::create_dir_all(&log_dir)?;
             fs::write(
                 log_dir.join("config.toml"),
                 toml::to_string_pretty(&config)?,
@@ -87,10 +102,16 @@ fn main() -> Result<()> {
         }
     };
 
-    let idx = Tensor::zeros([1, 1], (tch::Kind::Int, tch::Device::Cpu));
     println!(
         "[{}]",
-        tokenizer.decode(&Vec::<Token>::try_from(model.generate(idx, 500).i(0))?)
+        tokenizer.decode(&Vec::<Token>::try_from(
+            model
+                .generate(
+                    Tensor::from_slice(&tokenizer.encode("\n")).unsqueeze(0),
+                    500
+                )
+                .i(0)
+        )?)
     );
     Ok(())
 }
