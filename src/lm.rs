@@ -127,7 +127,6 @@ impl Model {
                             &config.block.block_option,
                             &config.block.block_config,
                             config.emb_dim,
-                            config.context_window,
                             config.dropout,
                         )?))
                     })?

@@ -64,7 +64,6 @@ pub fn block(
     block_type: &BlockOption,
     config: &BlockConfig,
     emb_dim: i64,
-    context_window: i64,
     dropout: f64,
 ) -> super::Result<Block> {
     Ok(match block_type {
@@ -72,7 +71,6 @@ pub fn block(
             path,
             emb_dim,
             config,
-            context_window,
             dropout,
             config
                 .causal_mask
@@ -86,7 +84,6 @@ pub fn block(
             path,
             emb_dim,
             config,
-            context_window,
             dropout,
             config
                 .causal_mask
@@ -122,7 +119,6 @@ impl SequentialBlock {
         path: nn::Path,
         emb_dim: i64,
         config: &BlockConfig,
-        context_window: i64,
         dropout: f64,
         causal_mask: Tensor,
     ) -> Result<Self> {
@@ -135,7 +131,6 @@ impl SequentialBlock {
                 emb_dim,
                 dropout,
                 causal_mask,
-                context_window,
             )?,
             storage_norm: norm::norm(&path / "st_norm", &config.norm, emb_dim),
             storage: storage::storage(&path / "storage", &config.storage, emb_dim, dropout),
@@ -162,7 +157,6 @@ impl ParallelBlock {
         path: nn::Path,
         emb_dim: i64,
         config: &BlockConfig,
-        context_window: i64,
         dropout: f64,
         causal_mask: Tensor,
     ) -> Result<Self> {
@@ -175,7 +169,6 @@ impl ParallelBlock {
                 emb_dim,
                 dropout,
                 causal_mask,
-                context_window,
             )?,
             storage: storage::storage(&path / "storage", &config.storage, emb_dim, dropout),
         })

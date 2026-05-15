@@ -5,7 +5,7 @@ use tch::{
 
 use crate::lm::{
     block::{self, activation::AttentionActivation},
-    position_embedding, ModelError, Result,
+    position_embedding, Result,
 };
 
 #[derive(Debug)]
@@ -67,7 +67,6 @@ impl MultiHeadSelfAttention {
         config: &super::AttentionConfig,
         dropout: f64,
         causal_mask: tch::Tensor,
-        context_window: i64,
     ) -> Result<Self> {
         Ok(Self {
             query: nn::linear(

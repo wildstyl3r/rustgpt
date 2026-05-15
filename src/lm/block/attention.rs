@@ -83,18 +83,10 @@ pub fn self_attention(
     emb_dim: i64,
     dropout: f64,
     causal_mask: tch::Tensor,
-    context_window: i64,
 ) -> Result<SelfAttention> {
     Ok(match options {
-        SelfAttentionOptions::MultiHeadSelfAttention => {
-            SelfAttention::MultiHead(quadratic::MultiHeadSelfAttention::new(
-                path,
-                emb_dim,
-                config,
-                dropout,
-                causal_mask,
-                context_window,
-            )?)
-        }
+        SelfAttentionOptions::MultiHeadSelfAttention => SelfAttention::MultiHead(
+            quadratic::MultiHeadSelfAttention::new(path, emb_dim, config, dropout, causal_mask)?,
+        ),
     })
 }
