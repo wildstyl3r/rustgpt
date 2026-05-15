@@ -58,6 +58,10 @@ fn main() -> Result<()> {
                 git_hash
             ));
             fs::create_dir_all(&log_dir)?;
+            fs::write(
+                log_dir.join("config.toml"),
+                toml::to_string_pretty(&config)?,
+            )?;
             let mut wtr = csv::Writer::from_path(
                 log_dir.join(format!("cw{0}_losses.csv", config.model.context_window)),
             )?;
@@ -86,10 +90,6 @@ fn main() -> Result<()> {
             wtr.flush()?;
             println!("elapsed time: {:?}", start.elapsed());
 
-            fs::write(
-                log_dir.join("config.toml"),
-                toml::to_string_pretty(&config)?,
-            )?;
             vs.save(log_dir.join("model.safetensors"))?;
             tokenizer.save(log_dir.join("tokenizer.json"))?;
             (tokenizer, Box::new(model) as Box<dyn LanguageModel>)

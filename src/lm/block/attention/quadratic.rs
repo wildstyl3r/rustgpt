@@ -5,7 +5,7 @@ use tch::{
 
 use crate::lm::{
     block::{self, activation::AttentionActivation},
-    position_embedding,
+    position_embedding, ModelError, Result,
 };
 
 #[derive(Debug)]
@@ -68,8 +68,8 @@ impl MultiHeadSelfAttention {
         dropout: f64,
         causal_mask: tch::Tensor,
         context_window: i64,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             query: nn::linear(
                 &path / "w_q",
                 emb_dim,
@@ -108,16 +108,17 @@ impl MultiHeadSelfAttention {
             ),
             rotary_pe: position_embedding::rotary::embedding(
                 &config.rotary_pe,
-                &path / "rotary_pe",
-                emb_dim,
-                context_window,
-            ),
+                config
+                    .frequencies
+                    .as_ref()
+                    .map(|(c, s)| (c.shallow_clone(), s.shallow_clone())),
+            )?,
             head_dim: config.multihead_dim / config.num_heads,
             dropout,
             vec_scale: (config.multihead_dim as f64).powf(-0.25),
             causal_mask,
             activation: block::activation::attention_activation(&config.activation),
-        }
+        })
     }
     pub fn projection_weights(&self) -> (tch::Tensor, tch::Tensor, tch::Tensor, tch::Tensor) {
         (

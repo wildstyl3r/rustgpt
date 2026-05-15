@@ -5,7 +5,7 @@ use tch::nn::{self, ModuleT};
 
 use crate::lm::{
     block::{self, activation::AttentionActivation},
-    position_embedding,
+    position_embedding, Result,
 };
 
 fn masked_attention(
@@ -26,7 +26,7 @@ fn masked_attention(
         .matmul(v)
 }
 
-#[derive(Args, Clone, Debug, Serialize, Deserialize)]
+#[derive(Args, Debug, Serialize, Deserialize)]
 #[group(multiple = false)]
 pub struct SelfAttentionGroup {
     #[arg(long, value_enum, default_value_t = SelfAttentionOptions::MultiHeadSelfAttention)]
@@ -40,10 +40,17 @@ pub enum SelfAttentionOptions {
     MultiHeadSelfAttention,
 }
 
-#[derive(Args, Debug, Serialize, Deserialize, Clone)]
+#[derive(Args, Debug, Serialize, Deserialize)]
 pub struct AttentionConfig {
     #[arg(long, value_enum, default_value_t = position_embedding::rotary::PositionEmbeddingOptions::None)]
     pub rotary_pe: position_embedding::rotary::PositionEmbeddingOptions,
+
+    #[arg(skip)]
+    #[serde(skip)]
+    pub frequencies: Option<(tch::Tensor, tch::Tensor)>,
+
+    #[arg(long, default_value_t = 10_000.)]
+    pub frequency_base: f64,
 
     #[arg(long, value_enum, default_value_t = block::activation::AttentionActivationOptions::Softmax)]
     pub activation: block::activation::AttentionActivationOptions,
@@ -77,8 +84,8 @@ pub fn self_attention(
     dropout: f64,
     causal_mask: tch::Tensor,
     context_window: i64,
-) -> SelfAttention {
-    match options {
+) -> Result<SelfAttention> {
+    Ok(match options {
         SelfAttentionOptions::MultiHeadSelfAttention => {
             SelfAttention::MultiHead(quadratic::MultiHeadSelfAttention::new(
                 path,
@@ -87,7 +94,7 @@ pub fn self_attention(
                 dropout,
                 causal_mask,
                 context_window,
-            ))
+            )?)
         }
-    }
+    })
 }

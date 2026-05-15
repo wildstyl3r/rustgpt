@@ -4,6 +4,7 @@ pub mod storage;
 use crate::lm::{
     block::{attention::SelfAttention, storage::Storage},
     norm::{self, Norm},
+    Result,
 };
 
 use clap::{Args, ValueEnum};
@@ -13,7 +14,7 @@ use tch::{
     Tensor,
 };
 
-#[derive(Args, Debug, Serialize, Deserialize, Clone)]
+#[derive(Args, Debug, Serialize, Deserialize)]
 pub struct BlockConfig {
     #[arg(long, value_enum, default_value_t = norm::NormOptions::LayerNorm)]
     pub norm: norm::NormOptions,
@@ -23,6 +24,10 @@ pub struct BlockConfig {
 
     #[arg(long, value_enum, default_value_t = storage::StorageOptions::Feedforward)]
     pub storage: storage::StorageOptions,
+
+    #[arg(skip)]
+    #[serde(skip)]
+    pub causal_mask: Option<Tensor>,
 }
 
 #[derive(Args, Debug, Serialize, Deserialize)]
@@ -61,26 +66,37 @@ pub fn block(
     emb_dim: i64,
     context_window: i64,
     dropout: f64,
-    causal_mask: Tensor,
-) -> Block {
-    match block_type {
+) -> super::Result<Block> {
+    Ok(match block_type {
         BlockOption::Sequential => Block::Sequential(SequentialBlock::new(
             path,
             emb_dim,
             config,
             context_window,
             dropout,
-            causal_mask,
-        )),
+            config
+                .causal_mask
+                .as_ref()
+                .map(|t| t.shallow_clone())
+                .ok_or(super::ModelError::InitializationError(
+                    "casual mask: nothing to shallow copy".to_string(),
+                ))?,
+        )?),
         BlockOption::Parallel => Block::Parallel(ParallelBlock::new(
             path,
             emb_dim,
             config,
             context_window,
             dropout,
-            causal_mask,
-        )),
-    }
+            config
+                .causal_mask
+                .as_ref()
+                .map(|t| t.shallow_clone())
+                .ok_or(super::ModelError::InitializationError(
+                    "casual mask: nothing to shallow copy".to_string(),
+                ))?,
+        )?),
+    })
 }
 
 #[derive(Debug)]
@@ -109,8 +125,8 @@ impl SequentialBlock {
         context_window: i64,
         dropout: f64,
         causal_mask: Tensor,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             attention_norm: norm::norm(&path / "sa_norm", &config.norm, emb_dim),
             self_attention: attention::self_attention(
                 &path / "self_attention",
@@ -120,10 +136,10 @@ impl SequentialBlock {
                 dropout,
                 causal_mask,
                 context_window,
-            ),
+            )?,
             storage_norm: norm::norm(&path / "st_norm", &config.norm, emb_dim),
             storage: storage::storage(&path / "storage", &config.storage, emb_dim, dropout),
-        }
+        })
     }
 }
 
@@ -149,8 +165,8 @@ impl ParallelBlock {
         context_window: i64,
         dropout: f64,
         causal_mask: Tensor,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        Ok(Self {
             common_norm: norm::norm(&path / "norm", &config.norm, emb_dim),
             self_attention: attention::self_attention(
                 &path / "self_attention",
@@ -160,8 +176,8 @@ impl ParallelBlock {
                 dropout,
                 causal_mask,
                 context_window,
-            ),
+            )?,
             storage: storage::storage(&path / "storage", &config.storage, emb_dim, dropout),
-        }
+        })
     }
 }

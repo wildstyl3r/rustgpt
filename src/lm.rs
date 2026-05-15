@@ -2,6 +2,7 @@ pub mod block;
 pub mod norm;
 pub mod position_embedding;
 use crate::interface::LanguageModel;
+use thiserror::Error;
 
 use clap::Args;
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,14 @@ use tch::{
     nn::{self, Module, ModuleT},
     Tensor,
 };
+
+#[derive(Error, Debug)]
+pub enum ModelError {
+    #[error("model initialization error {0}")]
+    InitializationError(String),
+}
+
+pub type Result<T, E = ModelError> = core::result::Result<T, E>;
 
 #[derive(Args, Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
@@ -18,7 +27,7 @@ pub struct ModelConfig {
     #[arg(long, default_value_t = 0.2)]
     pub dropout: f64,
 
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 32)]
     pub context_window: i64,
 
     #[arg(long, default_value_t = 4)]
@@ -43,15 +52,61 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn new(path: nn::Path, vocab_size: i64, config: &ModelConfig) -> Self {
-        let causal_mask = Tensor::ones(
-            [config.context_window, config.context_window],
-            (tch::Kind::Float, tch::Device::Cpu),
-        )
-        .tril(0)
-        .eq(0);
+    pub fn new(path: nn::Path, vocab_size: i64, config: &mut ModelConfig) -> Result<Self> {
+        config.block.block_config.causal_mask = Some(
+            Tensor::ones(
+                [config.context_window, config.context_window],
+                (tch::Kind::Int, tch::Device::Cpu),
+            )
+            .tril(0)
+            .eq(0),
+        );
 
-        Model {
+        if config
+            .block
+            .block_config
+            .self_attention
+            .attention_config
+            .rotary_pe
+            == position_embedding::rotary::PositionEmbeddingOptions::Rope
+        {
+            let d = config
+                .block
+                .block_config
+                .self_attention
+                .attention_config
+                .multihead_dim
+                / config
+                    .block
+                    .block_config
+                    .self_attention
+                    .attention_config
+                    .num_heads;
+            let fbase = config
+                .block
+                .block_config
+                .self_attention
+                .attention_config
+                .frequency_base;
+            //[T, C]
+            let frequencies =
+                Tensor::arange(config.context_window, (tch::Kind::Float, tch::Device::Cpu)).outer(
+                    &Tensor::from_slice(
+                        &(1..=d / 2)
+                            .map(|i| (fbase.powf(-(2 * (i - 1)) as f64) / (d as f64)) as f32)
+                            .collect::<Vec<f32>>(),
+                    ),
+                );
+
+            config
+                .block
+                .block_config
+                .self_attention
+                .attention_config
+                .frequencies = Some((frequencies.cos(), frequencies.sin()))
+        }
+
+        Ok(Model {
             token_embedding_table: nn::embedding(
                 &path / "embedding",
                 vocab_size,
@@ -66,17 +121,16 @@ impl Model {
             ),
             blocks: {
                 (0..config.n_blocks)
-                    .fold(nn::seq_t(), |s, i| {
-                        s.add(block::block(
+                    .try_fold(nn::seq_t(), |s, i| {
+                        Ok(s.add(block::block(
                             &path / ("b".to_owned() + &i.to_string()),
                             &config.block.block_option,
                             &config.block.block_config,
                             config.emb_dim,
                             config.context_window,
                             config.dropout,
-                            causal_mask.shallow_clone(),
-                        ))
-                    })
+                        )?))
+                    })?
                     .add(nn::layer_norm(
                         &path / "blocks_ln",
                         vec![config.emb_dim],
@@ -91,7 +145,7 @@ impl Model {
                 Default::default(),
             ),
             context_window: config.context_window,
-        }
+        })
     }
 }
 
