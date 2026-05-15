@@ -29,12 +29,12 @@ fn main() -> Result<()> {
 
     let (tokenizer, model) = match cli.mode {
         Mode::Train { config } => {
-            let config = match config {
+            let mut config = match config {
                 ConfigSource::File { path } => TrainConfig::load(path)?,
                 ConfigSource::Cli(config) => config,
             };
 
-            tch::manual_seed(1337);
+            tch::manual_seed(cli.seed);
 
             let text = std::fs::read_to_string(&config.dataset.input_path)?;
             let tokenizer = Tokenizer::new(&text);
@@ -44,7 +44,11 @@ fn main() -> Result<()> {
             )?;
 
             let vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
-            let model = lm::Model::new(vs.root(), tokenizer.vocabulary.len() as i64, &config.model);
+            let model = lm::Model::new(
+                vs.root(),
+                tokenizer.vocabulary.len() as i64,
+                &mut config.model,
+            )?;
 
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
@@ -54,7 +58,9 @@ fn main() -> Result<()> {
                 git_hash
             ));
             fs::create_dir_all(&log_dir)?;
-            let mut wtr = csv::Writer::from_path(log_dir.join("losses.csv"))?;
+            let mut wtr = csv::Writer::from_path(
+                log_dir.join(format!("cw{0}_losses.csv", config.model.context_window)),
+            )?;
             let start = Instant::now();
             for step in 0..config.max_iters {
                 if step % config.eval_interval == 0 {
@@ -88,27 +94,27 @@ fn main() -> Result<()> {
             tokenizer.save(log_dir.join("tokenizer.json"))?;
             (tokenizer, Box::new(model) as Box<dyn LanguageModel>)
         }
-        Mode::Eval { checkpoint, seed } => {
-            tch::manual_seed(seed);
+        Mode::Eval { checkpoint } => {
             let mut vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
             let tokenizer = Tokenizer::load(checkpoint.join("tokenizer.json"))?;
             let model = lm::Model::new(
                 vs.root(),
                 tokenizer.vocabulary.len() as i64,
-                &TrainConfig::load(checkpoint.join("config.toml"))?.model,
-            );
+                &mut TrainConfig::load(checkpoint.join("config.toml"))?.model,
+            )?;
             vs.load(checkpoint.join("model.safetensors"))?;
             (tokenizer, Box::new(model) as Box<dyn LanguageModel>)
         }
     };
 
+    tch::manual_seed(cli.seed);
     println!(
         "[{}]",
         tokenizer.decode(&Vec::<Token>::try_from(
             model
                 .generate(
                     Tensor::from_slice(&tokenizer.encode("\n")).unsqueeze(0),
-                    500
+                    cli.max_new_tok
                 )
                 .i(0)
         )?)

@@ -23,6 +23,10 @@ pub type Result<T> = result::Result<T, ConfigError>;
 pub struct Cli {
     #[command(subcommand)]
     pub mode: Mode,
+    #[arg(long, default_value_t = 1337)]
+    pub seed: i64,
+    #[arg(long, default_value_t = 500)]
+    pub max_new_tok: i64,
 }
 
 #[derive(Subcommand, Debug, Serialize, Deserialize)]
@@ -36,8 +40,6 @@ pub enum Mode {
     Eval {
         /// Relative path to the checkpoint directory
         checkpoint: std::path::PathBuf,
-        #[arg(long, default_value_t = 1337)]
-        seed: i64,
     },
 }
 

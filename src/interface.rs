@@ -13,7 +13,7 @@ pub trait LanguageModel: ModuleT {
 
     fn get_context_window(&self) -> i64;
 
-    fn generate(&self, mut idx: Tensor, max_new_tokens: usize) -> Tensor {
+    fn generate(&self, mut idx: Tensor, max_new_tokens: i64) -> Tensor {
         for _ in 0..max_new_tokens {
             let (_x, y) = idx.size2().unwrap();
             let idx_cond = idx.i((.., max(0, y - (self.get_context_window()))..));
