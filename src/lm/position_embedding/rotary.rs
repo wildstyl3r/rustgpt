@@ -55,12 +55,15 @@ impl PositionEmbedding {
             PositionEmbedding::PoPE((cos, sin)) => {
                 //x: [b, num_head, t, head_dim]
                 //f: [t, head_dim]
-                let (_, _, tx, _) = x.size4().unwrap();
+                let (b, n, tx, d) = x.size4().unwrap();
                 let (tf, _) = cos.size2().unwrap();
                 let cos = cos.slice(0, 0, min(tx, tf), 1);
                 let sin = sin.slice(0, 0, min(tx, tf), 1);
-                let mu = x.softplus();
-                tch::Tensor::cat(&[&mu * cos, mu * sin], -1)
+                let mut mu = x.softplus();
+                let output = tch::Tensor::empty([b, n, tx, d * 2], (x.kind(), x.device()));
+                output.slice(-1, 0, d, 1).copy_(&(&mu * &cos));
+                output.slice(-1, d, 2 * d, 1).copy_(&mu.multiply_(&sin));
+                output
             }
         }
     }
@@ -106,8 +109,7 @@ pub fn precompute(att_config: &mut AttentionConfig, context_window: i64) {
                 .outer(&Tensor::from_slice(
                     &(1..=d)
                         .map(|i| {
-                            // check the power sign!!!
-                            (att_config.frequency_base.powf(-(i - 1) as f64) / (d as f64)) as f32
+                            (att_config.frequency_base.powf((i - 1) as f64) / (d as f64)) as f32
                         })
                         .collect::<Vec<f32>>(),
                 ));
