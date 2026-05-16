@@ -4,7 +4,7 @@ use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use tch::Tensor;
 
-use crate::lm::{ModelError, Result};
+use crate::lm::{block::attention::AttentionConfig, ModelError, Result};
 
 #[derive(ValueEnum, Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum PositionEmbeddingOptions {
@@ -69,4 +69,24 @@ pub fn embedding(
         PositionEmbeddingOptions::Pope => todo!(),
         PositionEmbeddingOptions::None => PositionEmbedding::None,
     })
+}
+
+pub fn precompute(att_config: &mut AttentionConfig, context_window: i64) {
+    match att_config.rotary_pe {
+        PositionEmbeddingOptions::Rope => {
+            let d = att_config.multihead_dim / att_config.num_heads;
+            let frequencies = Tensor::arange(context_window, (tch::Kind::Float, tch::Device::Cpu))
+                .outer(&Tensor::from_slice(
+                    &(1..=d / 2)
+                        .map(|i| {
+                            (att_config.frequency_base.powf(-(2 * (i - 1)) as f64) / (d as f64))
+                                as f32
+                        })
+                        .collect::<Vec<f32>>(),
+                ));
+            att_config.frequencies = Some((frequencies.cos(), frequencies.sin()))
+        }
+        PositionEmbeddingOptions::Pope => todo!(),
+        PositionEmbeddingOptions::None => (),
+    }
 }

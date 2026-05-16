@@ -62,49 +62,10 @@ impl Model {
             .eq(0),
         );
 
-        if config
-            .block
-            .block_config
-            .self_attention
-            .attention_config
-            .rotary_pe
-            == position_embedding::rotary::PositionEmbeddingOptions::Rope
-        {
-            let d = config
-                .block
-                .block_config
-                .self_attention
-                .attention_config
-                .multihead_dim
-                / config
-                    .block
-                    .block_config
-                    .self_attention
-                    .attention_config
-                    .num_heads;
-            let fbase = config
-                .block
-                .block_config
-                .self_attention
-                .attention_config
-                .frequency_base;
-            //[T, C]
-            let frequencies =
-                Tensor::arange(config.context_window, (tch::Kind::Float, tch::Device::Cpu)).outer(
-                    &Tensor::from_slice(
-                        &(1..=d / 2)
-                            .map(|i| (fbase.powf(-(2 * (i - 1)) as f64) / (d as f64)) as f32)
-                            .collect::<Vec<f32>>(),
-                    ),
-                );
-
-            config
-                .block
-                .block_config
-                .self_attention
-                .attention_config
-                .frequencies = Some((frequencies.cos(), frequencies.sin()))
-        }
+        position_embedding::rotary::precompute(
+            &mut config.block.block_config.self_attention.attention_config,
+            config.context_window,
+        );
 
         Ok(Model {
             token_embedding_table: nn::embedding(
