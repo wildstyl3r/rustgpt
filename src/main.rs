@@ -14,7 +14,7 @@ mod utils;
 use crate::cli::{Cli, ConfigSource, Mode, TrainConfig};
 use crate::interface::LanguageModel;
 use crate::tokenizer::{Token, Tokenizer};
-use crate::utils::{estimate_loss, get_batch, train_val_split};
+use crate::utils::{estimate_loss, get_batch, param_count, train_val_split};
 
 #[derive(serde::Serialize)]
 struct LossRecord {
@@ -49,6 +49,13 @@ fn main() -> Result<()> {
                 tokenizer.vocabulary.len() as i64,
                 &mut config.model,
             )?;
+
+            let (total_params, trainable_params) = param_count(&vs);
+
+            println!(
+                "total parameters: {}\ntrainable parameters: {}",
+                total_params, trainable_params
+            );
 
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 

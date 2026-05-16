@@ -1,5 +1,5 @@
 use crate::{cli::TrainConfig, interface::LanguageModel};
-use tch::{IndexOp, TchError, Tensor};
+use tch::{nn::VarStore, IndexOp, TchError, Tensor};
 
 pub fn get_batch(data: &Tensor, batch_size: i64, context_window: i64) -> (Tensor, Tensor) {
     let ix = Tensor::randint(
@@ -72,4 +72,17 @@ pub fn estimate_loss<M: LanguageModel>(
         .double_value(&[]);
         (losses_train, losses_val)
     })
+}
+
+pub fn param_count(vs: &VarStore) -> (i64, i64) {
+    (
+        vs.variables()
+            .values()
+            .map(|t| t.size().iter().product::<i64>())
+            .sum(),
+        vs.trainable_variables()
+            .iter()
+            .map(|t| t.size().iter().product::<i64>())
+            .sum(),
+    )
 }
