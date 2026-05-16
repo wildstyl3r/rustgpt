@@ -21,6 +21,8 @@ pub struct MultiHeadSelfAttention {
     dropout: f64,
     vec_scale: f64,
     causal_mask: tch::Tensor,
+
+    polar_bias: Option<tch::Tensor>,
 }
 impl ModuleT for MultiHeadSelfAttention {
     fn forward_t(&self, xs: &tch::Tensor, train: bool) -> tch::Tensor {
@@ -31,10 +33,12 @@ impl ModuleT for MultiHeadSelfAttention {
         let q = self.rotary_pe.inject(
             q.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
                 .transpose(-2, -3),
+            &None,
         );
         let k = self.rotary_pe.inject(
             k.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
                 .transpose(-2, -3),
+            &self.polar_bias,
         );
         let v = self
             .value
@@ -68,6 +72,15 @@ impl MultiHeadSelfAttention {
         dropout: f64,
         causal_mask: tch::Tensor,
     ) -> Result<Self> {
+        let polar_bias = match config.rotary_pe {
+            position_embedding::rotary::PositionEmbeddingOptions::PopeBias => Some(path.randn(
+                "polar_bias",
+                &[config.num_heads, config.multihead_dim / config.num_heads],
+                0.,
+                0.75,
+            )),
+            _ => None,
+        };
         Ok(Self {
             query: nn::linear(
                 &path / "w_q",
@@ -117,6 +130,7 @@ impl MultiHeadSelfAttention {
             vec_scale: (config.multihead_dim as f64).powf(-0.25),
             causal_mask,
             activation: block::activation::attention_activation(&config.activation),
+            polar_bias,
         })
     }
     pub fn projection_weights(&self) -> (tch::Tensor, tch::Tensor, tch::Tensor, tch::Tensor) {

@@ -1,4 +1,4 @@
-use std::cmp::min;
+use std::{cmp::min, f64::consts::PI};
 
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
@@ -10,6 +10,7 @@ use crate::lm::{block::attention::AttentionConfig, ModelError, Result};
 pub enum PositionEmbeddingOptions {
     Rope,
     Pope,
+    PopeBias,
     None,
 }
 
@@ -21,7 +22,7 @@ pub enum PositionEmbedding {
 }
 
 impl PositionEmbedding {
-    pub fn inject(&self, x: tch::Tensor) -> tch::Tensor {
+    pub fn inject(&self, x: tch::Tensor, polar_bias: &Option<tch::Tensor>) -> tch::Tensor {
         match self {
             PositionEmbedding::None => x,
             PositionEmbedding::RoPE((cos, sin)) => {
@@ -55,15 +56,23 @@ impl PositionEmbedding {
             PositionEmbedding::PoPE((cos, sin)) => {
                 //x: [b, num_head, t, head_dim]
                 //f: [t, head_dim]
-                let (b, n, tx, d) = x.size4().unwrap();
+                let (_b, _n, tx, _d) = x.size4().unwrap();
                 let (tf, _) = cos.size2().unwrap();
-                let cos = cos.slice(0, 0, min(tx, tf), 1);
-                let sin = sin.slice(0, 0, min(tx, tf), 1);
-                let mut mu = x.softplus();
-                let output = tch::Tensor::empty([b, n, tx, d * 2], (x.kind(), x.device()));
-                output.slice(-1, 0, d, 1).copy_(&(&mu * &cos));
-                output.slice(-1, d, 2 * d, 1).copy_(&mu.multiply_(&sin));
-                output
+                let mut cos = cos.slice(0, 0, min(tx, tf), 1);
+                let mut sin = sin.slice(0, 0, min(tx, tf), 1);
+                //pb: [num_head, head_dim]
+                if let Some(unbounded_bias) = polar_bias.as_ref() {
+                    //bd: [num_head, _, head_dim]
+                    let bounded_delta = ((unbounded_bias.tanh() - 1) * PI).unsqueeze(1);
+                    let cos_delta = bounded_delta.cos();
+                    let sin_delta = bounded_delta.sin();
+                    (sin, cos) = (
+                        &sin * &cos_delta + &cos * &sin_delta,
+                        cos * cos_delta - sin * sin_delta,
+                    )
+                }
+                let mu = x.softplus();
+                tch::Tensor::cat(&[&(&mu * cos), &(mu * sin)], -1)
             }
         }
     }
@@ -79,7 +88,7 @@ pub fn embedding(
                 "rotary embedding init: no precomputed frequencies".to_string(),
             ))?)
         }
-        PositionEmbeddingOptions::Pope => {
+        PositionEmbeddingOptions::Pope | PositionEmbeddingOptions::PopeBias => {
             PositionEmbedding::PoPE(freqs.ok_or(ModelError::InitializationError(
                 "polar embedding init: no precomputed frequencies".to_string(),
             ))?)
@@ -103,7 +112,7 @@ pub fn precompute(att_config: &mut AttentionConfig, context_window: i64) {
                 ));
             att_config.frequencies = Some((frequencies.cos(), frequencies.sin()))
         }
-        PositionEmbeddingOptions::Pope => {
+        PositionEmbeddingOptions::Pope | PositionEmbeddingOptions::PopeBias => {
             let d = att_config.multihead_dim / att_config.num_heads;
             let frequencies = Tensor::arange(context_window, (tch::Kind::Float, tch::Device::Cpu))
                 .outer(&Tensor::from_slice(
