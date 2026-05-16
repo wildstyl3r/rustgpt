@@ -10,7 +10,7 @@ Project is focused primarily on tiny models and training/inference on CPU.
 - [x] parallel transformer block (May 13, 2026)
 - [ ] BPE tokenizer
 - [x] rotary position embedding
-- [ ] polar position embedding
+- [x] polar position embedding
 - [ ] KV-caching
 - [ ] speculative decoding
 - [ ] random feature attention
