@@ -16,7 +16,7 @@ pub enum PositionEmbeddingOptions {
 #[derive(Debug)]
 pub enum PositionEmbedding {
     RoPE((Tensor, Tensor)),
-    // PoPE(),
+    PoPE((Tensor, Tensor)),
     None,
 }
 
@@ -25,12 +25,12 @@ impl PositionEmbedding {
         match self {
             PositionEmbedding::None => x,
             PositionEmbedding::RoPE((cos, sin)) => {
-                let (_, _, tx, _) = x.size4().unwrap();
+                //x: [b, num_head, t, head_dim]
+                //f: [t, hdp]
                 let (tf, _) = cos.size2().unwrap();
-                //[b, num_head, t, head_dim]
-                //[b, num_head, t, hdp, 2]
-                //[t, hdp] x2-> [t, hdp, 2]
                 let mut shape = x.size();
+                let tx = shape[2];
+                //x: [b, num_head, t, head_dim] -> [b, num_head, t, hdp, 2]
                 shape.pop();
                 shape.push(-1);
                 shape.push(2);
@@ -52,6 +52,16 @@ impl PositionEmbedding {
                 )
                 .flatten(-2, -1)
             }
+            PositionEmbedding::PoPE((cos, sin)) => {
+                //x: [b, num_head, t, head_dim]
+                //f: [t, head_dim]
+                let (_, _, tx, _) = x.size4().unwrap();
+                let (tf, _) = cos.size2().unwrap();
+                let cos = cos.slice(0, 0, min(tx, tf), 1);
+                let sin = sin.slice(0, 0, min(tx, tf), 1);
+                let mu = x.softplus();
+                tch::Tensor::cat(&[&mu * cos, mu * sin], -1)
+            }
         }
     }
 }
@@ -66,7 +76,11 @@ pub fn embedding(
                 "rotary embedding init: no precomputed frequencies".to_string(),
             ))?)
         }
-        PositionEmbeddingOptions::Pope => todo!(),
+        PositionEmbeddingOptions::Pope => {
+            PositionEmbedding::PoPE(freqs.ok_or(ModelError::InitializationError(
+                "polar embedding init: no precomputed frequencies".to_string(),
+            ))?)
+        }
         PositionEmbeddingOptions::None => PositionEmbedding::None,
     })
 }
@@ -86,7 +100,19 @@ pub fn precompute(att_config: &mut AttentionConfig, context_window: i64) {
                 ));
             att_config.frequencies = Some((frequencies.cos(), frequencies.sin()))
         }
-        PositionEmbeddingOptions::Pope => todo!(),
+        PositionEmbeddingOptions::Pope => {
+            let d = att_config.multihead_dim / att_config.num_heads;
+            let frequencies = Tensor::arange(context_window, (tch::Kind::Float, tch::Device::Cpu))
+                .outer(&Tensor::from_slice(
+                    &(1..=d)
+                        .map(|i| {
+                            // check the power sign!!!
+                            (att_config.frequency_base.powf(-(i - 1) as f64) / (d as f64)) as f32
+                        })
+                        .collect::<Vec<f32>>(),
+                ));
+            att_config.frequencies = Some((frequencies.cos(), frequencies.sin()))
+        }
         PositionEmbeddingOptions::None => (),
     }
 }
