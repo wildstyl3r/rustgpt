@@ -27,31 +27,22 @@ impl PositionEmbedding {
             PositionEmbedding::None => x,
             PositionEmbedding::RoPE((cos, sin)) => {
                 //x: [b, num_head, t, head_dim]
-                //f: [t, hdp]
+                //f: [t, head_dim/2]
                 let (tf, _) = cos.size2().unwrap();
-                let mut shape = x.size();
-                let tx = shape[2];
-                //x: [b, num_head, t, head_dim] -> [b, num_head, t, hdp, 2]
-                shape.pop();
-                shape.push(-1);
-                shape.push(2);
-                let x = x.reshape(shape);
-                tch::Tensor::stack(
+                let (_, _, tx, _) = x.size4().unwrap();
+                let half_head_dim = x.size().last().unwrap() / 2;
+                //x_h: [b, num_head, t, head_dim/2]
+                let x_half1 = x.slice(-1, 0, half_head_dim, 1);
+                let cos = cos.slice(-2, 0, min(tx, tf), 1);
+                let x_half2 = x.slice(-1, half_head_dim, half_head_dim * 2, 1);
+                let sin = sin.slice(-2, 0, min(tx, tf), 1);
+                tch::Tensor::cat(
                     &[
-                        tch::Tensor::linalg_vecdot(
-                            &tch::Tensor::stack(&[cos, &-sin], -1).slice(-3, 0, min(tx, tf), 1),
-                            &x,
-                            -1,
-                        ),
-                        tch::Tensor::linalg_vecdot(
-                            &tch::Tensor::stack(&[sin, cos], -1).slice(-3, 0, min(tx, tf), 1),
-                            &x,
-                            -1,
-                        ),
+                        &x_half1 * &cos - &x_half2 * &sin,
+                        x_half1 * sin + x_half2 * cos,
                     ],
                     -1,
                 )
-                .flatten(-2, -1)
             }
             PositionEmbedding::PoPE((cos, sin)) => {
                 //x: [b, num_head, t, head_dim]
@@ -72,7 +63,7 @@ impl PositionEmbedding {
                     )
                 }
                 let mu = x.softplus();
-                tch::Tensor::cat(&[&(&mu * cos), &(mu * sin)], -1)
+                tch::Tensor::cat(&[(&mu * cos), (mu * sin)], -1)
             }
         }
     }
