@@ -49,21 +49,23 @@ impl PositionEmbedding {
                 //f: [t, head_dim]
                 let (_b, _n, tx, _d) = x.size4().unwrap();
                 let (tf, _) = cos.size2().unwrap();
-                let mut cos = cos.slice(0, 0, min(tx, tf), 1);
-                let mut sin = sin.slice(0, 0, min(tx, tf), 1);
+                let cos = cos.slice(0, 0, min(tx, tf), 1);
+                let sin = sin.slice(0, 0, min(tx, tf), 1);
+                let mu = x.softplus();
                 //pb: [num_head, head_dim]
                 if let Some(unbounded_bias) = polar_bias.as_ref() {
                     //bd: [num_head, _, head_dim]
                     let bounded_delta = ((unbounded_bias.tanh() - 1) * PI).unsqueeze(1);
                     let cos_delta = bounded_delta.cos();
                     let sin_delta = bounded_delta.sin();
-                    (sin, cos) = (
+                    let (sin, cos) = (
                         &sin * &cos_delta + &cos * &sin_delta,
                         cos * cos_delta - sin * sin_delta,
-                    )
+                    );
+                    tch::Tensor::cat(&[&(&mu * cos), &(mu * sin)], -1)
+                } else {
+                    tch::Tensor::cat(&[&(&mu * cos), &(mu * sin)], -1)
                 }
-                let mu = x.softplus();
-                tch::Tensor::cat(&[(&mu * cos), (mu * sin)], -1)
             }
         }
     }
