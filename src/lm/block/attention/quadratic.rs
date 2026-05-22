@@ -75,7 +75,7 @@ impl MultiHeadSelfAttention {
         let polar_bias = match config.rotary_pe {
             position_embedding::rotary::PositionEmbeddingOptions::PopeBias => Some(path.randn(
                 "polar_bias",
-                &[config.num_heads, config.multihead_dim / config.num_heads],
+                &[config.num_heads, 1, config.multihead_dim / config.num_heads],
                 0.,
                 0.75,
             )),

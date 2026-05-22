@@ -38,8 +38,8 @@ impl PositionEmbedding {
                 let sin = sin.slice(-2, 0, min(tx, tf), 1);
                 tch::Tensor::cat(
                     &[
-                        &x_half1 * &cos - &x_half2 * &sin,
-                        x_half1 * sin + x_half2 * cos,
+                        (&x_half1 * &cos).addcmul(&x_half2, &-&sin),
+                        (x_half1 * sin).addcmul(&x_half2, &cos),
                     ],
                     -1,
                 )
@@ -53,19 +53,19 @@ impl PositionEmbedding {
                 let sin = sin.slice(0, 0, min(tx, tf), 1);
                 let mu = x.softplus();
                 //pb: [num_head, head_dim]
-                if let Some(unbounded_bias) = polar_bias.as_ref() {
+                let (final_sin, final_cos) = if let Some(unbounded_bias) = polar_bias.as_ref() {
                     //bd: [num_head, _, head_dim]
-                    let bounded_delta = ((unbounded_bias.tanh() - 1) * PI).unsqueeze(1);
+                    let bounded_delta = (unbounded_bias.tanh() - 1) * PI;
                     let cos_delta = bounded_delta.cos();
                     let sin_delta = bounded_delta.sin();
-                    let (sin, cos) = (
-                        &sin * &cos_delta + &cos * &sin_delta,
-                        cos * cos_delta - sin * sin_delta,
-                    );
-                    tch::Tensor::cat(&[&(&mu * cos), &(mu * sin)], -1)
+                    (
+                        (&sin * &cos_delta).addcmul(&cos, &sin_delta),
+                        (cos * cos_delta).addcmul(&sin, &-sin_delta),
+                    )
                 } else {
-                    tch::Tensor::cat(&[&(&mu * cos), &(mu * sin)], -1)
-                }
+                    (sin, cos)
+                };
+                tch::Tensor::cat(&[(&mu * final_cos), (mu * final_sin)], -1)
             }
         }
     }
