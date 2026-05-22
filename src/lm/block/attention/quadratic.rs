@@ -110,7 +110,7 @@ impl MultiHeadSelfAttention {
                 },
             ),
             output: nn::linear(
-                &path / "w_q",
+                &path / "w_o",
                 config.multihead_dim,
                 emb_dim,
                 nn::LinearConfig {
