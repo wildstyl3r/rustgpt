@@ -59,7 +59,7 @@ pub struct TrainConfig {
     #[arg(long, default_value_t = 3e-3)]
     pub learning_rate: f64,
 
-    #[arg(long, default_value_t = 15001)]
+    #[arg(long, default_value_t = 10001)]
     pub max_iters: i64,
 
     #[arg(long, default_value_t = 500)]
