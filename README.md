@@ -13,11 +13,16 @@ The project is focused primarily on tiny models and training/inference on CPU.
 - [x] parallel transformer block (May 13, 2026)
 - [x] rotary position embedding
 - [x] polar position embedding
+- [ ] Mixture-of-Experts
+### linear attention
 - [ ] random feature attention
+- [ ] Taylor series based softmax approximation
+### quasilinear attention
+- [ ] sliced ReLU attention
+### generic attention tricks
 - [ ] MQA
 - [ ] GQA
 - [ ] MLA
-- [ ] Mixture-of-Experts
 ### inference
 - [ ] KV-caching
 - [ ] speculative decoding
