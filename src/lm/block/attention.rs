@@ -60,6 +60,9 @@ pub struct AttentionConfig {
 
     #[arg(long, default_value_t = 4)]
     pub num_heads: i64,
+
+    #[arg(long)]
+    qk_norm: bool,
 }
 
 #[derive(Debug)]

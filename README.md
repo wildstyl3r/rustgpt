@@ -20,6 +20,7 @@ The project is focused primarily on tiny models and training/inference on CPU.
 ### quasilinear attention
 - [ ] sliced ReLU attention
 ### generic attention tricks
+- [x] QK-norm
 - [ ] MQA
 - [ ] GQA
 - [ ] MLA

@@ -15,6 +15,7 @@ pub struct MultiHeadSelfAttention {
     value: nn::Linear,
     output: nn::Linear,
 
+    qk_norm_scale: Option<tch::Tensor>,
     activation: AttentionActivation,
     rotary_pe: position_embedding::rotary::PositionEmbedding,
     head_dim: i64,
@@ -31,13 +32,26 @@ impl ModuleT for MultiHeadSelfAttention {
 
         let (b, t, mulhead_dim) = q.size3().unwrap();
         let q = self.rotary_pe.inject(
-            q.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
-                .transpose(-2, -3),
+            if self.qk_norm_scale.as_ref().is_some() {
+                q.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
+                    .transpose(-2, -3)
+                    .rms_norm([self.head_dim], None::<tch::Tensor>, 1e-5)
+            } else {
+                q.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
+                    .transpose(-2, -3)
+            },
             &None,
         );
         let k = self.rotary_pe.inject(
-            k.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
-                .transpose(-2, -3),
+            if let Some(ref_k_scale) = self.qk_norm_scale.as_ref() {
+                k.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
+                    .transpose(-2, -3)
+                    .rms_norm([self.head_dim], None::<tch::Tensor>, 1e-5)
+                    * ref_k_scale
+            } else {
+                k.view([b, t, mulhead_dim / self.head_dim, self.head_dim])
+                    .transpose(-2, -3)
+            },
             &self.polar_bias,
         );
         let v = self
@@ -131,6 +145,15 @@ impl MultiHeadSelfAttention {
             causal_mask,
             activation: block::activation::attention_activation(&config.activation),
             polar_bias,
+            qk_norm_scale: if config.qk_norm {
+                Some(path.var(
+                    "k_norm_scale",
+                    &[1, config.num_heads, 1, 1],
+                    nn::Init::Const(1.),
+                ))
+            } else {
+                None
+            },
         })
     }
     pub fn projection_weights(&self) -> (tch::Tensor, tch::Tensor, tch::Tensor, tch::Tensor) {
