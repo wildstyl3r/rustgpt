@@ -156,12 +156,4 @@ impl MultiHeadSelfAttention {
             },
         })
     }
-    pub fn projection_weights(&self) -> (tch::Tensor, tch::Tensor, tch::Tensor, tch::Tensor) {
-        (
-            self.query.ws.shallow_clone(),
-            self.key.ws.shallow_clone(),
-            self.value.ws.shallow_clone(),
-            self.output.ws.shallow_clone(),
-        )
-    }
 }
