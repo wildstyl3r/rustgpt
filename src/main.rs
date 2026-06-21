@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     let git_hash = env!("GIT_HASH");
 
     let (tokenizer, model) = match cli.mode {
-        Mode::Train { config } => {
+        Mode::Train { config, tag } => {
             let mut config = match config {
                 ConfigSource::File { path } => TrainConfig::load(path)?,
                 ConfigSource::Cli(config) => config,
@@ -60,9 +60,13 @@ fn main() -> Result<()> {
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
             let log_dir = std::path::Path::new("checkpoints").join(format!(
-                "run_{}_{}",
+                "run_{}_{}{}",
                 chrono::Local::now().format("%Y%m%d_%H%M"),
-                git_hash
+                git_hash,
+                match tag {
+                    Some(tag) => format!("_{}", tag),
+                    None => String::new(),
+                },
             ));
             fs::create_dir_all(&log_dir)?;
             fs::write(

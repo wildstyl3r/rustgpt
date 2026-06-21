@@ -35,6 +35,8 @@ pub enum Mode {
     Train {
         #[command(subcommand)]
         config: ConfigSource,
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Load model weights from a checkpoint
     Eval {
@@ -76,6 +78,9 @@ pub struct TrainConfig {
 
     #[command(flatten)]
     pub model: ModelConfig,
+
+    #[arg(long)]
+    pub merges: Option<usize>,
 }
 
 impl TrainConfig {
