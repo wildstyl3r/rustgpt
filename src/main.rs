@@ -1,4 +1,5 @@
 use std::fs::{self};
+use std::io::Write;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -14,7 +15,7 @@ mod utils;
 use crate::cli::{Cli, ConfigSource, Mode, TrainConfig};
 use crate::interface::LanguageModel;
 use crate::tokenizer::{Token, Tokenizer};
-use crate::utils::{estimate_loss, get_batch, param_count, train_val_split};
+use crate::utils::{estimate_loss, get_batch, param_count, train_val_split, write_summary};
 
 #[derive(serde::Serialize)]
 struct LossRecord {
@@ -50,13 +51,6 @@ fn main() -> Result<()> {
                 &mut config.model,
             )?;
 
-            let (total_params, trainable_params) = param_count(&vs);
-
-            println!(
-                "total parameters: {}\ntrainable parameters: {}",
-                total_params, trainable_params
-            );
-
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
             let log_dir = std::path::Path::new("checkpoints").join(format!(
@@ -69,6 +63,21 @@ fn main() -> Result<()> {
                 },
             ));
             fs::create_dir_all(&log_dir)?;
+
+            let mut scheme = fs::File::create(log_dir.join("scheme.txt"))?;
+
+            let (total_params, trainable_params) = param_count(&vs);
+            scheme.write_fmt(format_args!(
+                "total parameters: {}\ntrainable parameters: {}\n",
+                total_params, trainable_params
+            ))?;
+            write_summary(&vs, &scheme)?;
+
+            println!(
+                "total parameters: {}\ntrainable parameters: {}",
+                total_params, trainable_params
+            );
+
             fs::write(
                 log_dir.join("config.toml"),
                 toml::to_string_pretty(&config)?,
@@ -89,6 +98,7 @@ fn main() -> Result<()> {
                         train_loss: losses.0,
                         val_loss: losses.1,
                     })?;
+                    wtr.flush()?;
                 }
 
                 let (xb, yb) = get_batch(&train, config.batch_size, config.model.context_window);
