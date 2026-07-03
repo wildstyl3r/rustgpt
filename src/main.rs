@@ -22,6 +22,7 @@ struct LossRecord {
     step: i64,
     train_loss: f64,
     val_loss: f64,
+    time_from_start: String,
 }
 
 fn main() -> Result<()> {
@@ -44,12 +45,17 @@ fn main() -> Result<()> {
                 config.dataset.train_share,
             )?;
 
+            let model_creation_start = Instant::now();
             let vs: nn::VarStore = tch::nn::VarStore::new(tch::Device::Cpu);
             let model = lm::Model::new(
                 vs.root(),
                 tokenizer.vocabulary.len() as i64,
                 &mut config.model,
             )?;
+            println!(
+                "model created in {:?}",
+                model_creation_start - Instant::now()
+            );
 
             let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
 
@@ -88,15 +94,19 @@ fn main() -> Result<()> {
             let start = Instant::now();
             for step in 0..config.max_iters {
                 if step % config.eval_interval == 0 {
+                    let eval_start = Instant::now();
                     let losses = estimate_loss(&config, &train, &val, &model);
+                    let eval_end = Instant::now();
+                    let dt = eval_end - start;
                     println!(
-                        "step: {}, train loss: {:.4}, val loss: {:.4}",
-                        step, losses.0, losses.1
+                        "step: {}, train loss: {:.4}, val loss: {:.4}, time from start {:?}, {} eval iterations done in {:?}",
+                        step, losses.0, losses.1, dt, config.eval_iters, eval_end-eval_start
                     );
                     wtr.serialize(LossRecord {
                         step,
                         train_loss: losses.0,
                         val_loss: losses.1,
+                        time_from_start: format!("{:?}", dt),
                     })?;
                     wtr.flush()?;
                 }
