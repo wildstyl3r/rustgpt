@@ -9,6 +9,7 @@ use tch::{nn, nn::OptimizerConfig, IndexOp, Tensor};
 mod cli;
 mod interface;
 mod lm;
+mod lr_schedule;
 mod tokenizer;
 mod utils;
 
@@ -57,9 +58,7 @@ fn main() -> Result<()> {
                 model_creation_start - Instant::now()
             );
 
-            let mut optimizer = nn::AdamW::default()
-                .beta2(0.95)
-                .build(&vs, config.learning_rate)?;
+            let mut optimizer = nn::AdamW::default().beta2(0.95).build(&vs, 0.)?;
 
             let log_dir = std::path::Path::new("checkpoints").join(format!(
                 "run_{}_{}{}",
@@ -94,7 +93,7 @@ fn main() -> Result<()> {
                 log_dir.join(format!("cw{0}_losses.csv", config.model.context_window)),
             )?;
             let start = Instant::now();
-            for step in 0..config.max_iters {
+            for step in 0..config.lr_schedule.max_iters {
                 if step % config.eval_interval == 0 {
                     let eval_start = Instant::now();
                     let losses = estimate_loss(&config, &train, &val, &model);
@@ -116,6 +115,7 @@ fn main() -> Result<()> {
                 let (xb, yb) = get_batch(&train, config.batch_size, config.model.context_window);
 
                 let (loss, _) = model.forward_with_loss(&xb, &yb, true);
+                optimizer.set_lr(config.lr_schedule.get_lr(step));
                 optimizer.zero_grad();
                 loss.backward();
                 optimizer.step();

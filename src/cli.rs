@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml::de;
 
-use crate::lm::ModelConfig;
+use crate::{lm::ModelConfig, lr_schedule::LrScheduleConfig};
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -58,11 +58,8 @@ pub enum ConfigSource {
 
 #[derive(Args, Debug, Serialize, Deserialize)]
 pub struct TrainConfig {
-    #[arg(long, default_value_t = 3e-3)]
-    pub learning_rate: f64,
-
-    #[arg(long, default_value_t = 10001)]
-    pub max_iters: i64,
+    #[command(flatten)]
+    pub lr_schedule: LrScheduleConfig,
 
     #[arg(long, default_value_t = 500)]
     pub eval_interval: i64,
