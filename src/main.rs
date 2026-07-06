@@ -57,7 +57,9 @@ fn main() -> Result<()> {
                 model_creation_start - Instant::now()
             );
 
-            let mut optimizer = nn::AdamW::default().build(&vs, config.learning_rate)?;
+            let mut optimizer = nn::AdamW::default()
+                .beta2(0.95)
+                .build(&vs, config.learning_rate)?;
 
             let log_dir = std::path::Path::new("checkpoints").join(format!(
                 "run_{}_{}{}",
