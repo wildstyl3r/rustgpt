@@ -17,16 +17,16 @@ pub struct LrScheduleConfig {
     #[arg(long, default_value_t = 3e-3)]
     pub max_lr: f64,
 
-    #[arg(long, default_value_t = 0.1)]
+    #[arg(long, default_value_t = 0.25)]
     pub min_lr_share: f64,
 
     #[arg(long, value_enum,default_value_t = DecayMode::Cosine)]
     pub lr_decay: DecayMode,
 
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 500)]
     pub warmup_iters: i64,
 
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 7000)]
     pub max_coast_iters: i64,
 }
 
