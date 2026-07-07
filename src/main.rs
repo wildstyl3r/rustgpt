@@ -10,6 +10,7 @@ mod cli;
 mod interface;
 mod lm;
 mod lr_schedule;
+mod muon;
 mod tokenizer;
 mod utils;
 
@@ -58,7 +59,20 @@ fn main() -> Result<()> {
                 model_creation_start - Instant::now()
             );
 
-            let mut optimizer = nn::AdamW::default().beta2(0.95).build(&vs, 0.)?;
+            let (mut adam_p, mut muon_p) = (Vec::new(), Vec::new());
+            for (name, w) in vs.variables() {
+                if w.size().len() == 1 || name.contains("embedding") {
+                    adam_p.push(w);
+                } else {
+                    muon_p.push(w);
+                }
+            }
+
+            let mut adamw = nn::AdamW::default().beta2(0.95).build_copt(0.)?;
+            for w in adam_p {
+                adamw.add_parameters(&w, 0)?;
+            }
+            let mut muon = muon::Muon::new(muon_p, 0., 0.95, 0.1, true, false, 1e-7);
 
             let log_dir = std::path::Path::new("checkpoints").join(format!(
                 "run_{}_{}{}",
@@ -115,10 +129,14 @@ fn main() -> Result<()> {
                 let (xb, yb) = get_batch(&train, config.batch_size, config.model.context_window);
 
                 let (loss, _) = model.forward_with_loss(&xb, &yb, true);
-                optimizer.set_lr(config.lr_schedule.get_lr(step));
-                optimizer.zero_grad();
+                let lr = config.lr_schedule.get_lr(step);
+                adamw.set_learning_rate(lr)?;
+                muon.set_lr(lr);
+                adamw.zero_grad()?;
+                muon.zero_grad();
                 loss.backward();
-                optimizer.step();
+                adamw.step()?;
+                muon.step();
             }
             wtr.flush()?;
             println!("elapsed time: {:?}", start.elapsed());

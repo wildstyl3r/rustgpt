@@ -99,7 +99,7 @@ impl Model {
             },
             final_ln: nn::layer_norm(&path / "ln_f", vec![config.emb_dim], Default::default()),
             language_modeling_head: nn::linear(
-                &path / "lm_head",
+                &path / "unembedding",
                 config.emb_dim,
                 vocab_size,
                 Default::default(),
