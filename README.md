@@ -8,7 +8,8 @@ The project is focused primarily on tiny models and training/inference on CPU.
 - [x] model weights saving and loading (May 2026)
 - [x] enum dispatch based model construction managed from CLI (May 13, 2026)
 - [x] RMSnorm (May 13, 2026)
-- [ ] BPE tokenizer
+- [ ] BPE tokenizer ([piecer?](https://github.com/wildstyl3r/piecer))
+- [ ] Kimi-style attentive residual block mixing
 ### transformer block modifications
 - [x] parallel transformer block (May 13, 2026)
 - [x] rotary position embedding
@@ -28,4 +29,4 @@ The project is focused primarily on tiny models and training/inference on CPU.
 - [ ] KV-caching
 - [ ] speculative decoding
 ### optimization
-- [ ] Muon optimizer (???)
+- [x] Muon optimizer (Jul 8, 2026)
