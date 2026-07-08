@@ -16,15 +16,15 @@ const C: f64 = 2.0315;
 
 fn newton_schulz(mut x: tch::Tensor, turbo: bool, eps: f64) -> tch::Tensor {
     // assert!(g.size().len() == 2);
-    let tall = x.size()[0] > x.size()[1];
+    let tall = x.size()[x.size().len() - 2] > x.size()[x.size().len() - 1];
     if tall {
-        x = x.transpose(0, 1);
+        x = x.transpose(-1, -2);
     }
 
     let (mut a, mut x, iters) = if turbo {
         // https://arxiv.org/abs/2512.04632  Turbo-Muon: Accelerating Orthogonality-Based Optimization with Pre-Conditioning
         // todo: check the per-step optimized ns coefficients a,b,c
-        let a = x.matmul(&x.transpose(0, 1));
+        let a = x.matmul(&x.transpose(-1, -2));
         let s = a
             .abs()
             .sum_dim_intlist(&[-1][..], false, None)
@@ -36,19 +36,19 @@ fn newton_schulz(mut x: tch::Tensor, turbo: bool, eps: f64) -> tch::Tensor {
             4,
         )
     } else {
-        let x = &x / (x.frobenius_norm([-2, -1], true) + eps);
-        (x.matmul(&x.transpose(0, 1)), x, 5)
+        x /= x.frobenius_norm([-2, -1], true) + eps;
+        (x.matmul(&x.transpose(-1, -2)), x, 5)
     };
 
     for i in 0..iters {
         if i != 0 {
-            a = x.matmul(&x.transpose(0, 1));
+            a = x.matmul_out(&a, &x.transpose(-1, -2));
         }
         let b = B * &a + C * &a.matmul(&a);
-        x = A * &x + b.matmul(&x);
+        x = (A * &x).add_out(&x, &b.matmul(&x));
     }
     if tall {
-        x = x.transpose(0, 1);
+        x = x.transpose(-1, -2);
     }
     x
 }
@@ -77,23 +77,26 @@ impl Muon {
 
     pub fn step(&mut self) {
         tch::no_grad(|| {
-            for (w, m) in self.parameters.iter_mut().zip(&self.momenta) {
-                let m_new = self.mu * m + w.grad();
-                let m_prepare = if self.nesterov {
-                    self.mu * m_new + w.grad()
+            for (w, m) in self.parameters.iter_mut().zip(self.momenta.iter_mut()) {
+                let _ = m.lerp_(&w.grad(), self.mu);
+
+                let update_prepare = if self.nesterov {
+                    &(w.grad().lerp_(m, self.mu))
                 } else {
-                    m_new
+                    m
                 };
-                let shape = m_prepare.size();
-                let m_prepare = m_prepare.view([shape[0], -1]);
 
                 // https://arxiv.org/pdf/2502.16982 Muon is scalable for LLM training
-                let rms_scale =
-                    0.2 * (std::cmp::max(m_prepare.size()[0], m_prepare.size()[1]) as f64).sqrt();
+                let rms_scale = 0.2
+                    * (std::cmp::max(
+                        update_prepare.size()[update_prepare.size().len() - 2],
+                        update_prepare.size()[update_prepare.size().len() - 1],
+                    ) as f64)
+                        .sqrt();
 
-                let o_new = newton_schulz(m_prepare, self.turbo, self.eps).view(&*shape);
+                let update = newton_schulz(update_prepare.copy(), self.turbo, self.eps);
                 let _ = w.subtract_(
-                    &(self.lr * (rms_scale * o_new + w.multiply_scalar(self.weight_decay))),
+                    &(self.lr * (rms_scale * update + w.multiply_scalar(self.weight_decay))),
                 );
             }
         })

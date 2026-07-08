@@ -26,7 +26,7 @@ pub struct LrScheduleConfig {
     #[arg(long, default_value_t = 500)]
     pub warmup_iters: i64,
 
-    #[arg(long, default_value_t = 7000)]
+    #[arg(long, default_value_t = 2000)]
     pub max_coast_iters: i64,
 }
 
